@@ -1,49 +1,42 @@
 package test
 
-func forSimple() {
-	var x []int // want "Consider preallocating x"
-	for i := 0; i < 5; i++ {
-		x = append(x, i)
-	}
-}
-
 func sliceAssignEmptyLit() {
-	x := []int{} // want "Consider preallocating x"
+	x := []int{} // want "Consider preallocating x with capacity 5$"
 	for i := range "Hello" {
 		x = append(x, i)
 	}
 }
 
 func sliceAssignEmptyMake() {
-	x := make([]int, 0) // want "Consider preallocating x"
+	x := make([]int, 0) // want "Consider preallocating x with capacity 5$"
 	for i := range "Hello" {
 		x = append(x, i)
 	}
 }
 
 func sliceAssignNilConvert() {
-	x := []int(nil) // want "Consider preallocating x"
+	x := []int(nil) // want "Consider preallocating x with capacity 5$"
 	for i := range "Hello" {
 		x = append(x, i)
 	}
 }
 
 func sliceVarAssignEmptyLit() {
-	var x = []int{} // want "Consider preallocating x"
+	var x = []int{} // want "Consider preallocating x with capacity 5$"
 	for i := range "Hello" {
 		x = append(x, i)
 	}
 }
 
 func sliceVarAssignEmptyMake() {
-	var x = make([]int, 0) // want "Consider preallocating x"
+	var x = make([]int, 0) // want "Consider preallocating x with capacity 5$"
 	for i := range "Hello" {
 		x = append(x, i)
 	}
 }
 
 func sliceVarAssignNilConvert() {
-	var x = []int(nil) // want "Consider preallocating x"
+	var x = []int(nil) // want "Consider preallocating x with capacity 5$"
 	for i := range "Hello" {
 		x = append(x, i)
 	}
@@ -98,5 +91,13 @@ func breakInsideLoop() {
 			break
 		}
 		x = append(x, i)
+	}
+}
+
+func multipleVarNames() {
+	var x, y []int // want "Consider preallocating x with capacity 5$" "Consider preallocating y with capacity 5$"
+	for i := range 5 {
+		x = append(x, i)
+		y = append(y, i)
 	}
 }

@@ -1,9 +1,11 @@
 package pkg
 
 import (
-	"fmt"
+	"bytes"
 	"go/ast"
+	"go/format"
 	"go/token"
+	"strconv"
 
 	"golang.org/x/tools/go/analysis"
 )
@@ -12,6 +14,7 @@ type sliceDeclaration struct {
 	name     string
 	pos      token.Pos
 	eligible bool
+	capExpr  ast.Expr
 }
 
 type returnsVisitor struct {
@@ -103,7 +106,7 @@ func (v *returnsVisitor) Visit(node ast.Node) ast.Visitor {
 				continue
 			}
 			if s.Body != nil {
-				v.handleLoops(s.Body)
+				v.handleLoops(s, s.Body)
 			}
 
 		case *ast.ForStmt:
@@ -111,7 +114,7 @@ func (v *returnsVisitor) Visit(node ast.Node) ast.Visitor {
 				continue
 			}
 			if s.Body != nil {
-				v.handleLoops(s.Body)
+				v.handleLoops(s, s.Body)
 			}
 		}
 
@@ -122,13 +125,29 @@ func (v *returnsVisitor) Visit(node ast.Node) ast.Visitor {
 		}
 	}
 
+	buf := bytes.NewBuffer(nil)
+
 	for _, sliceDecl := range v.sliceDeclarations {
-		if sliceDecl.eligible {
-			v.preallocHints = append(v.preallocHints, analysis.Diagnostic{
-				Pos:     sliceDecl.pos,
-				Message: fmt.Sprintf("Consider preallocating %s", sliceDecl.name),
-			})
+		if !sliceDecl.eligible {
+			continue
 		}
+
+		buf.Reset()
+		buf.WriteString("Consider preallocating ")
+		buf.WriteString(sliceDecl.name)
+
+		if sliceDecl.capExpr != nil {
+			undo := buf.Len()
+			buf.WriteString(" with capacity ")
+			if format.Node(buf, token.NewFileSet(), sliceDecl.capExpr) != nil {
+				buf.Truncate(undo)
+			}
+		}
+
+		v.preallocHints = append(v.preallocHints, analysis.Diagnostic{
+			Pos:     sliceDecl.pos,
+			Message: buf.String(),
+		})
 	}
 
 	return v
@@ -168,7 +187,9 @@ func isCreateEmptyArray(expr ast.Expr) bool {
 }
 
 // handleLoops is a helper function to share the logic required for both *ast.RangeLoops and *ast.ForLoops
-func (v *returnsVisitor) handleLoops(blockStmt *ast.BlockStmt) {
+func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt) {
+	var capExpr *ast.Expr
+
 	for _, stmt := range blockStmt.List {
 		switch bodyStmt := stmt.(type) {
 		case *ast.AssignStmt:
@@ -223,6 +244,29 @@ func (v *returnsVisitor) handleLoops(blockStmt *ast.BlockStmt) {
 						// This is a potential mark, we just need to make sure there are no returns/continues in the
 						// range loop.
 						sliceDecl.eligible = true
+
+						if capExpr == nil {
+							var c ast.Expr
+							switch s := loopStmt.(type) {
+							case *ast.RangeStmt:
+								c = rangeLoopCount(s)
+							case *ast.ForStmt:
+								c = forLoopCount(s)
+							}
+							if c != nil {
+								capExpr = &c
+							}
+						}
+
+						if sliceDecl.capExpr == nil {
+							sliceDecl.capExpr = *capExpr
+						} else {
+							sliceDecl.capExpr = &ast.BinaryExpr{
+								X:  sliceDecl.capExpr,
+								Op: token.ADD,
+								Y:  *capExpr,
+							}
+						}
 						break
 					}
 				}
@@ -241,4 +285,173 @@ func (v *returnsVisitor) handleLoops(blockStmt *ast.BlockStmt) {
 			}
 		}
 	}
+}
+
+func rangeLoopCount(stmt *ast.RangeStmt) ast.Expr {
+	switch xType := inferExprType(stmt.X).(type) {
+	case *ast.ArrayType, *ast.MapType:
+	case *ast.StarExpr:
+		if _, ok := xType.X.(*ast.ArrayType); !ok {
+			return nil
+		}
+	case *ast.Ident:
+		switch xType.Name {
+		case "byte", "rune", "int", "int8", "int16", "int32", "int64",
+			"uint", "uint8", "uint16", "uint32", "uint64", "uintptr":
+			return stmt.X
+		case "string":
+			if lit, ok := stmt.X.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				if str, err := strconv.Unquote(lit.Value); err == nil {
+					return &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(len(str))}
+				}
+			}
+		default:
+			return nil
+		}
+	default:
+		return nil
+	}
+
+	return &ast.CallExpr{Fun: &ast.Ident{Name: "len"}, Args: []ast.Expr{stmt.X}}
+}
+
+func forLoopCount(stmt *ast.ForStmt) ast.Expr {
+	initStmt, ok := stmt.Init.(*ast.AssignStmt)
+	if !ok {
+		return nil
+	}
+
+	condExpr, ok := stmt.Cond.(*ast.BinaryExpr)
+	if !ok {
+		return nil
+	}
+
+	postStmt, ok := stmt.Post.(*ast.IncDecStmt)
+	if !ok {
+		return nil
+	}
+
+	postIdent, ok := postStmt.X.(*ast.Ident)
+	if !ok {
+		return nil
+	}
+
+	index := -1
+	for i := range initStmt.Lhs {
+		if ident, ok := initStmt.Lhs[i].(*ast.Ident); ok && ident.Name == postIdent.Name {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return nil
+	}
+
+	lower := initStmt.Rhs[index]
+	var upper ast.Expr
+	op := condExpr.Op
+	if x, ok := condExpr.X.(*ast.Ident); ok && x.Name == postIdent.Name {
+		upper = condExpr.Y
+	} else if y, ok := condExpr.Y.(*ast.Ident); ok && y.Name == postIdent.Name {
+		// reverse the inequality
+		upper = condExpr.X
+		switch op {
+		case token.LSS:
+			op = token.GTR
+		case token.GTR:
+			op = token.LSS
+		case token.LEQ:
+			op = token.GEQ
+		case token.GEQ:
+			op = token.LEQ
+		default:
+		}
+	} else {
+		return nil
+	}
+
+	if postStmt.Tok == token.INC {
+		if op == token.GTR || op == token.GEQ {
+			return nil
+		}
+	} else {
+		if op == token.LSS || op == token.LEQ {
+			return nil
+		}
+		lower, upper = upper, lower
+	}
+
+	plusOne := op == token.LEQ || op == token.GEQ
+
+	if upperInt, ok := exprIntValue(upper); ok {
+		if plusOne {
+			upperInt++
+		}
+		if lowerInt, ok := exprIntValue(lower); ok {
+			if count := upperInt - lowerInt; count > 0 {
+				return &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(count)}
+			}
+			return nil
+		}
+		if upperInt == 0 {
+			return &ast.UnaryExpr{Op: token.SUB, X: lower}
+		}
+		return &ast.BinaryExpr{
+			X:  &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(upperInt)},
+			Op: token.SUB,
+			Y:  lower,
+		}
+	} else if lowerInt, ok := exprIntValue(lower); ok {
+		if plusOne {
+			lowerInt--
+		}
+		if lowerInt == 0 {
+			return upper
+		}
+		if lowerInt < 0 {
+			return &ast.BinaryExpr{
+				X:  upper,
+				Op: token.ADD,
+				Y:  &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(-lowerInt)},
+			}
+		}
+		return &ast.BinaryExpr{
+			X:  upper,
+			Op: token.SUB,
+			Y:  &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(lowerInt)},
+		}
+	}
+	subExpr := &ast.BinaryExpr{X: upper, Op: token.SUB, Y: lower}
+	if plusOne {
+		return &ast.BinaryExpr{
+			X:  subExpr,
+			Op: token.ADD,
+			Y:  &ast.BasicLit{Kind: token.INT, Value: "1"},
+		}
+	}
+	return subExpr
+}
+
+func exprIntValue(expr ast.Expr) (int, bool) {
+	var negate bool
+	if unary, ok := expr.(*ast.UnaryExpr); ok {
+		switch unary.Op {
+		case token.ADD:
+			expr = unary.X
+		case token.SUB:
+			expr = unary.X
+			negate = true
+		default:
+			return 0, false
+		}
+	}
+	if lit, ok := expr.(*ast.BasicLit); ok && lit.Kind == token.INT {
+		if i, err := strconv.Atoi(lit.Value); err == nil {
+			if negate {
+				return -i, true
+			}
+			return i, true
+		}
+	}
+	return 0, false
 }
