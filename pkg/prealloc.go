@@ -45,91 +45,80 @@ func (v *returnsVisitor) Visit(node ast.Node) ast.Visitor {
 	v.returnsInsideOfLoop = false
 	origLen := len(v.preallocHints)
 
-	if blockStmt, ok := node.(*ast.BlockStmt); ok {
-		if blockStmt.List != nil {
-			for _, stmt := range blockStmt.List {
-				switch s := stmt.(type) {
-				// Find non pre-allocated slices
-				case *ast.DeclStmt:
-					genD, ok := s.Decl.(*ast.GenDecl)
-					if !ok {
-						continue
-					}
-					if genD.Tok == token.VAR {
-						for _, spec := range genD.Specs {
-							vSpec, ok := spec.(*ast.ValueSpec)
-							if !ok {
-								continue
-							}
-							if _, ok := inferExprType(vSpec.Type).(*ast.ArrayType); ok {
-								if vSpec.Names != nil {
-									/*atID, ok := arrayType.Elt.(*ast.Ident)
-									if !ok {
-										continue
-									}*/
+	blockStmt, ok := node.(*ast.BlockStmt)
+	if !ok {
+		return v
+	}
 
-									// We should handle multiple slices declared on the same line, e.g. var mySlice1, mySlice2 []uint32
-									for _, vName := range vSpec.Names {
-										v.sliceDeclarations = append(v.sliceDeclarations, &sliceDeclaration{name: vName.Name, pos: genD.Pos()})
-									}
-								}
-							} else if len(vSpec.Names) == len(vSpec.Values) {
-								for i, val := range vSpec.Values {
-									if isCreateEmptyArray(val) {
-										v.sliceDeclarations = append(v.sliceDeclarations, &sliceDeclaration{name: vSpec.Names[i].Name, pos: s.Pos()})
-									}
-								}
-							}
-						}
-					}
-
-				case *ast.AssignStmt:
-					if len(s.Lhs) == len(s.Rhs) {
-						for index := range s.Lhs {
-							ident, ok := s.Lhs[index].(*ast.Ident)
-							if !ok {
-								continue
-							}
-							if isCreateEmptyArray(s.Rhs[index]) {
-								v.sliceDeclarations = append(v.sliceDeclarations, &sliceDeclaration{name: ident.Name, pos: s.Pos()})
-							}
-						}
-					}
-
-				case *ast.RangeStmt:
-					if v.includeRangeLoops {
-						if len(v.sliceDeclarations) == 0 {
-							continue
-						}
-						// Check the value being ranged over and ensure it's not a channel or an iterator function.
-						switch inferExprType(s.X).(type) {
-						case *ast.ChanType, *ast.FuncType:
-							continue
-						}
-						if s.Body != nil {
-							v.handleLoops(s.Body)
-						}
-					}
-
-				case *ast.ForStmt:
-					if v.includeForLoops {
-						if len(v.sliceDeclarations) == 0 {
-							continue
-						}
-						if s.Body != nil {
-							v.handleLoops(s.Body)
-						}
-					}
-
-				default:
+	for _, stmt := range blockStmt.List {
+		switch s := stmt.(type) {
+		// Find non pre-allocated slices
+		case *ast.DeclStmt:
+			genD, ok := s.Decl.(*ast.GenDecl)
+			if !ok || genD.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range genD.Specs {
+				vSpec, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
 				}
-
-				// If simple is true and we had returns inside our loop then discard hints and exit.
-				if v.simple && v.returnsInsideOfLoop {
-					v.preallocHints = v.preallocHints[:origLen]
-					return v
+				if vSpec.Type != nil {
+					if _, ok := inferExprType(vSpec.Type).(*ast.ArrayType); ok {
+						// We should handle multiple slices declared on the same line, e.g. var mySlice1, mySlice2 []uint32
+						for _, vName := range vSpec.Names {
+							v.sliceDeclarations = append(v.sliceDeclarations, &sliceDeclaration{name: vName.Name, pos: genD.Pos()})
+						}
+					}
+				} else if len(vSpec.Names) == len(vSpec.Values) {
+					for i, val := range vSpec.Values {
+						if isCreateEmptyArray(val) {
+							v.sliceDeclarations = append(v.sliceDeclarations, &sliceDeclaration{name: vSpec.Names[i].Name, pos: s.Pos()})
+						}
+					}
 				}
 			}
+
+		case *ast.AssignStmt:
+			if len(s.Lhs) != len(s.Rhs) {
+				continue
+			}
+			for index := range s.Lhs {
+				ident, ok := s.Lhs[index].(*ast.Ident)
+				if !ok {
+					continue
+				}
+				if isCreateEmptyArray(s.Rhs[index]) {
+					v.sliceDeclarations = append(v.sliceDeclarations, &sliceDeclaration{name: ident.Name, pos: s.Pos()})
+				}
+			}
+
+		case *ast.RangeStmt:
+			if !v.includeRangeLoops || len(v.sliceDeclarations) == 0 {
+				continue
+			}
+			// Check the value being ranged over and ensure it's not a channel or an iterator function.
+			switch inferExprType(s.X).(type) {
+			case *ast.ChanType, *ast.FuncType:
+				continue
+			}
+			if s.Body != nil {
+				v.handleLoops(s.Body)
+			}
+
+		case *ast.ForStmt:
+			if !v.includeForLoops || len(v.sliceDeclarations) == 0 {
+				continue
+			}
+			if s.Body != nil {
+				v.handleLoops(s.Body)
+			}
+		}
+
+		// If simple is true and we had returns inside our loop then discard hints and exit.
+		if v.simple && v.returnsInsideOfLoop {
+			v.preallocHints = v.preallocHints[:origLen]
+			return v
 		}
 	}
 
@@ -200,11 +189,7 @@ func (v *returnsVisitor) handleLoops(blockStmt *ast.BlockStmt) {
 				}
 
 				rhsFuncIdent, ok := callExpr.Fun.(*ast.Ident)
-				if !ok {
-					continue
-				}
-
-				if rhsFuncIdent.Name != "append" {
+				if !ok || rhsFuncIdent.Name != "append" {
 					continue
 				}
 
@@ -244,18 +229,16 @@ func (v *returnsVisitor) handleLoops(blockStmt *ast.BlockStmt) {
 			}
 		case *ast.IfStmt:
 			ifStmt := bodyStmt
-			if ifStmt.Body != nil {
-				for _, ifBodyStmt := range ifStmt.Body.List {
-					// TODO: should probably handle embedded ifs here
-					switch /*ift :=*/ ifBodyStmt.(type) {
-					case *ast.BranchStmt, *ast.ReturnStmt:
-						v.returnsInsideOfLoop = true
-					default:
-					}
+			if ifStmt.Body == nil {
+				continue
+			}
+			for _, ifBodyStmt := range ifStmt.Body.List {
+				// TODO: should probably handle embedded ifs here
+				switch ifBodyStmt.(type) {
+				case *ast.BranchStmt, *ast.ReturnStmt:
+					v.returnsInsideOfLoop = true
 				}
 			}
-
-		default:
 		}
 	}
 }
