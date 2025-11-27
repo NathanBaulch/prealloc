@@ -276,6 +276,9 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 			// loop will definitely never iterate (probably a logic error)
 			return
 		}
+		if _, ok := countExpr.(*ast.BasicLit); !ok {
+			countExpr = &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(count)}
+		}
 	}
 
 	for name, appendCount := range appendCounters {
@@ -469,17 +472,27 @@ func exprIntAdd(x, y ast.Expr) ast.Expr {
 
 func exprIntValue(expr ast.Expr) (int, bool) {
 	var negate bool
-	if unary, ok := expr.(*ast.UnaryExpr); ok {
-		switch unary.Op {
-		case token.ADD:
-			expr = unary.X
-		case token.SUB:
-			expr = unary.X
-			negate = true
-		default:
-			return 0, false
+	for {
+		switch e := expr.(type) {
+		case *ast.UnaryExpr:
+			if e.Op == token.SUB {
+				negate = !negate
+				expr = e.X
+				continue
+			}
+		case *ast.CallExpr:
+			if ident, ok := e.Fun.(*ast.Ident); ok && len(e.Args) == 1 {
+				switch ident.Name {
+				case "byte", "rune", "int", "int8", "int16", "int32", "int64",
+					"uint", "uint8", "uint16", "uint32", "uint64", "uintptr":
+					expr = e.Args[0]
+					continue
+				}
+			}
 		}
+		break
 	}
+
 	if lit, ok := expr.(*ast.BasicLit); ok && lit.Kind == token.INT {
 		if i, err := strconv.Atoi(lit.Value); err == nil {
 			if negate {

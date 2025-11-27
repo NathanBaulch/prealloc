@@ -92,6 +92,13 @@ func rangeMap() {
 	}
 }
 
+func rangeIntTypeConvert() {
+	var x []uint // want "Consider preallocating x with capacity 5$"
+	for i := range uint(5) {
+		x = append(x, i)
+	}
+}
+
 func rangeMultiple() {
 	var x []int // want "Consider preallocating x with capacity 5 \\+ n \\+ len\\(s\\) \\+ \\(n - m \\+ 1\\)$"
 	for i := range 5 {

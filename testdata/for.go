@@ -177,3 +177,10 @@ func forIterateNegativeTimes() {
 		x = append(x, i)
 	}
 }
+
+func forTypeConvert() {
+	var x []uint // want "Consider preallocating x with capacity 5$"
+	for i := uint(0); i < uint(5); i++ {
+		x = append(x, i)
+	}
+}
