@@ -1,5 +1,7 @@
 package test
 
+import "sort"
+
 func rangeInt() {
 	var x []int // want "Consider preallocating x with capacity 5$"
 	for i := range 5 {
@@ -91,6 +93,17 @@ func rangeMultiple() {
 	}
 	m := 0
 	for i := m; i <= n; i++ {
+		x = append(x, i)
+	}
+}
+
+func rangeMultipleWithPartialUnresolvedCapacity() {
+	var x []int // want "Consider preallocating x$"
+	for i := range 5 {
+		x = append(x, i)
+	}
+	var s sort.IntSlice
+	for i := range s {
 		x = append(x, i)
 	}
 }

@@ -28,6 +28,8 @@ type returnsVisitor struct {
 	preallocHints     []analysis.Diagnostic
 }
 
+var invalid = &ast.BadExpr{}
+
 func Check(files []*ast.File, simple, includeRangeLoops, includeForLoops bool) []analysis.Diagnostic {
 	var hints []analysis.Diagnostic
 	for _, f := range files {
@@ -131,7 +133,7 @@ func (v *returnsVisitor) Visit(node ast.Node) ast.Visitor {
 		buf.WriteString("Consider preallocating ")
 		buf.WriteString(sliceDecl.name)
 
-		if sliceDecl.capExpr != nil {
+		if sliceDecl.capExpr != nil && sliceDecl.capExpr != invalid {
 			undo := buf.Len()
 			buf.WriteString(" with capacity ")
 			if format.Node(buf, token.NewFileSet(), sliceDecl.capExpr) != nil {
@@ -295,7 +297,9 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 
 			sliceDecl.eligible = true
 
-			if capExpr != nil {
+			if capExpr == nil {
+				sliceDecl.capExpr = invalid
+			} else if capExpr != invalid {
 				capExpr := capExpr
 				if appendCount > 1 {
 					if capInt, ok := exprIntValue(capExpr); ok {
