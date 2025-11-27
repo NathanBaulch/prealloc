@@ -2,6 +2,20 @@ package test
 
 import "sort"
 
+func rangeZero() {
+	var x []int
+	for i := range 0 {
+		x = append(x, i)
+	}
+}
+
+func rangeEmptyString() {
+	var x []int
+	for i := range "" {
+		x = append(x, i)
+	}
+}
+
 func rangeInt() {
 	var x []int // want "Consider preallocating x with capacity 5$"
 	for i := range 5 {

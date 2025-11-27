@@ -163,3 +163,17 @@ func forIncVarToVarInclusive() {
 		x = append(x, i)
 	}
 }
+
+func forIterateZeroTimes() {
+	var x []int
+	for i := 0; i < 0; i++ {
+		x = append(x, i)
+	}
+}
+
+func forIterateNegativeTimes() {
+	var x []int
+	for i := 1; i < 0; i++ {
+		x = append(x, i)
+	}
+}

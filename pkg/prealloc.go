@@ -271,6 +271,13 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 		countExpr = forLoopCount(s)
 	}
 
+	if count, ok := exprIntValue(countExpr); ok {
+		if count <= 0 {
+			// loop will definitely never iterate (probably a logic error)
+			return
+		}
+	}
+
 	for name, appendCount := range appendCounters {
 		for _, sliceDecl := range v.sliceDeclarations {
 			if sliceDecl.name != name {
