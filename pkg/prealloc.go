@@ -11,10 +11,11 @@ import (
 )
 
 type sliceDeclaration struct {
-	name     string
-	pos      token.Pos
-	eligible bool
-	capExpr  ast.Expr
+	name       string
+	pos        token.Pos
+	eligible   bool
+	ineligible bool
+	capExpr    ast.Expr
 }
 
 type returnsVisitor struct {
@@ -23,9 +24,8 @@ type returnsVisitor struct {
 	includeRangeLoops bool
 	includeForLoops   bool
 	// visitor fields
-	sliceDeclarations   []*sliceDeclaration
-	preallocHints       []analysis.Diagnostic
-	returnsInsideOfLoop bool
+	sliceDeclarations []*sliceDeclaration
+	preallocHints     []analysis.Diagnostic
 }
 
 func Check(files []*ast.File, simple, includeRangeLoops, includeForLoops bool) []analysis.Diagnostic {
@@ -45,8 +45,6 @@ func Check(files []*ast.File, simple, includeRangeLoops, includeForLoops bool) [
 
 func (v *returnsVisitor) Visit(node ast.Node) ast.Visitor {
 	v.sliceDeclarations = nil
-	v.returnsInsideOfLoop = false
-	origLen := len(v.preallocHints)
 
 	blockStmt, ok := node.(*ast.BlockStmt)
 	if !ok {
@@ -117,18 +115,12 @@ func (v *returnsVisitor) Visit(node ast.Node) ast.Visitor {
 				v.handleLoops(s, s.Body)
 			}
 		}
-
-		// If simple is true and we had returns inside our loop then discard hints and exit.
-		if v.simple && v.returnsInsideOfLoop {
-			v.preallocHints = v.preallocHints[:origLen]
-			return v
-		}
 	}
 
 	buf := bytes.NewBuffer(nil)
 
 	for _, sliceDecl := range v.sliceDeclarations {
-		if !sliceDecl.eligible {
+		if !sliceDecl.eligible || sliceDecl.ineligible {
 			continue
 		}
 
@@ -188,7 +180,8 @@ func isCreateEmptyArray(expr ast.Expr) bool {
 
 // handleLoops is a helper function to share the logic required for both *ast.RangeLoops and *ast.ForLoops
 func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt) {
-	var capExpr *ast.Expr
+	appendCounters := make(map[string]int, len(v.sliceDeclarations))
+	var returnsInsideOfLoop bool
 
 	for _, stmt := range blockStmt.List {
 		switch bodyStmt := stmt.(type) {
@@ -201,6 +194,11 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 
 				lhsIdent, ok := asgnStmt.Lhs[index].(*ast.Ident)
 				if !ok {
+					continue
+				}
+
+				if count, ok := appendCounters[lhsIdent.Name]; ok && count == 0 {
+					// already ineligible due to unsupported append pattern
 					continue
 				}
 
@@ -229,6 +227,7 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 				// This is weird (and maybe a logic error),
 				// but we cannot recommend pre-allocation.
 				if lhsIdent.Name != rhsIdent.Name {
+					appendCounters[lhsIdent.Name] = 0
 					continue
 				}
 
@@ -236,40 +235,11 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 				// we should ignore this. Pre-allocating in this case
 				// is confusing and is not possible in general.
 				if callExpr.Ellipsis.IsValid() {
+					appendCounters[lhsIdent.Name] = 0
 					continue
 				}
 
-				for _, sliceDecl := range v.sliceDeclarations {
-					if sliceDecl.name == lhsIdent.Name {
-						// This is a potential mark, we just need to make sure there are no returns/continues in the
-						// range loop.
-						sliceDecl.eligible = true
-
-						if capExpr == nil {
-							var c ast.Expr
-							switch s := loopStmt.(type) {
-							case *ast.RangeStmt:
-								c = rangeLoopCount(s)
-							case *ast.ForStmt:
-								c = forLoopCount(s)
-							}
-							if c != nil {
-								capExpr = &c
-							}
-						}
-
-						if sliceDecl.capExpr == nil {
-							sliceDecl.capExpr = *capExpr
-						} else {
-							sliceDecl.capExpr = &ast.BinaryExpr{
-								X:  sliceDecl.capExpr,
-								Op: token.ADD,
-								Y:  *capExpr,
-							}
-						}
-						break
-					}
-				}
+				appendCounters[lhsIdent.Name] += len(callExpr.Args) - 1
 			}
 		case *ast.IfStmt:
 			ifStmt := bodyStmt
@@ -280,8 +250,65 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 				// TODO: should probably handle embedded ifs here
 				switch ifBodyStmt.(type) {
 				case *ast.BranchStmt, *ast.ReturnStmt:
-					v.returnsInsideOfLoop = true
+					returnsInsideOfLoop = true
 				}
+			}
+		}
+	}
+
+	if len(appendCounters) == 0 {
+		return
+	}
+
+	var capExpr ast.Expr
+	switch s := loopStmt.(type) {
+	case *ast.RangeStmt:
+		capExpr = rangeLoopCount(s)
+	case *ast.ForStmt:
+		capExpr = forLoopCount(s)
+	}
+
+	for name, appendCount := range appendCounters {
+		for _, sliceDecl := range v.sliceDeclarations {
+			if sliceDecl.name != name {
+				continue
+			}
+
+			if sliceDecl.ineligible {
+				break
+			}
+
+			if v.simple && returnsInsideOfLoop {
+				// ineligible due to return/break whilst in simple mode
+				sliceDecl.ineligible = true
+				break
+			}
+
+			if appendCount == 0 {
+				// ineligible due to unsupported append pattern
+				sliceDecl.ineligible = true
+				break
+			}
+
+			sliceDecl.eligible = true
+
+			if capExpr != nil {
+				capExpr := capExpr
+				if appendCount > 1 {
+					if capInt, ok := exprIntValue(capExpr); ok {
+						capExpr = &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(appendCount * capInt)}
+					} else {
+						capExpr = &ast.BinaryExpr{
+							X:  &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(appendCount)},
+							Op: token.MUL,
+							Y:  capExpr,
+						}
+					}
+				}
+				if sliceDecl.capExpr != nil {
+					capExpr = &ast.BinaryExpr{X: sliceDecl.capExpr, Op: token.ADD, Y: capExpr}
+				}
+				sliceDecl.capExpr = capExpr
 			}
 		}
 	}
