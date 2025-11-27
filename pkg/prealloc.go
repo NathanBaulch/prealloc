@@ -111,6 +111,9 @@ func (v *returnsVisitor) Visit(node ast.Node) ast.Visitor {
 			if !v.includeForLoops || len(v.sliceDeclarations) == 0 {
 				continue
 			}
+			if s.Init == nil || s.Cond == nil || s.Post == nil {
+				continue
+			}
 			if s.Body != nil {
 				v.handleLoops(s, s.Body)
 			}

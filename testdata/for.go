@@ -1,5 +1,19 @@
 package test
 
+func forInfinite() {
+	var x []int
+	for {
+		x = append(x, 0)
+	}
+}
+
+func forWhile() {
+	var x []int
+	for true {
+		x = append(x, 0)
+	}
+}
+
 func forIncZeroToMaxExclusive() {
 	var x []int // want "Consider preallocating x with capacity 5$"
 	for i := 0; i < 5; i++ {
