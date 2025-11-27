@@ -132,7 +132,7 @@ func forIncVarToMaxExclusive() {
 
 func forIncVarToMaxInclusive() {
 	m := 0
-	var x []int // want "Consider preallocating x with capacity 6 - m$"
+	var x []int // want "Consider preallocating x with capacity 5 - m \\+ 1$"
 	for i := m; i <= 5; i++ {
 		x = append(x, i)
 	}

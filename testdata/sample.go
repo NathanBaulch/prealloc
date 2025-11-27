@@ -43,42 +43,42 @@ func sliceVarAssignNilConvert() {
 }
 
 func sliceAlreadyInitialized() {
-	x := []int{1, 2, 3}
+	x := []int{1, 2, 3} // want "Consider preallocating x with capacity 8$"
 	for i := range "Hello" {
 		x = append(x, i)
 	}
 }
 
 func sliceVarAlreadyInitialized() {
-	var x = []int{1, 2, 3}
+	var x = []int{1, 2, 3} // want "Consider preallocating x with capacity 8$"
 	for i := range "Hello" {
 		x = append(x, i)
 	}
 }
 
 func sliceVarTypedAlreadyInitialized() {
-	var x []int = []int{1, 2, 3}
+	var x []int = []int{1, 2, 3} // want "Consider preallocating x with capacity 8$"
 	for i := range "Hello" {
 		x = append(x, i)
 	}
 }
 
 func sliceAlreadyAllocated() {
-	x := make([]int, 5)
+	x := make([]int, 5) // want "Consider preallocating x with capacity 10$"
 	for i := range "Hello" {
 		x = append(x, i)
 	}
 }
 
 func sliceVarAlreadyAllocated() {
-	var x = make([]int, 5)
+	var x = make([]int, 5) // want "Consider preallocating x with capacity 10$"
 	for i := range "Hello" {
 		x = append(x, i)
 	}
 }
 
 func sliceVarTypedAlreadyAllocated() {
-	var x []int = make([]int, 5)
+	var x []int = make([]int, 5) // want "Consider preallocating x with capacity 10$"
 	for i := range "Hello" {
 		x = append(x, i)
 	}

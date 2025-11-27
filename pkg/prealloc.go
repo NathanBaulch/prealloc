@@ -75,8 +75,8 @@ func (v *returnsVisitor) Visit(node ast.Node) ast.Visitor {
 					}
 				} else {
 					for i, vName := range vSpec.Names {
-						if isCreateEmptyArray(vSpec.Values[i]) {
-							v.sliceDeclarations = append(v.sliceDeclarations, &sliceDeclaration{name: vName.Name, pos: s.Pos()})
+						if lenExpr, ok := isCreateArray(vSpec.Values[i]); ok {
+							v.sliceDeclarations = append(v.sliceDeclarations, &sliceDeclaration{name: vName.Name, pos: s.Pos(), capExpr: lenExpr})
 						}
 					}
 				}
@@ -91,8 +91,8 @@ func (v *returnsVisitor) Visit(node ast.Node) ast.Visitor {
 				if !ok {
 					continue
 				}
-				if isCreateEmptyArray(s.Rhs[index]) {
-					v.sliceDeclarations = append(v.sliceDeclarations, &sliceDeclaration{name: ident.Name, pos: s.Pos()})
+				if lenExpr, ok := isCreateArray(s.Rhs[index]); ok {
+					v.sliceDeclarations = append(v.sliceDeclarations, &sliceDeclaration{name: ident.Name, pos: s.Pos(), capExpr: lenExpr})
 				}
 			}
 
@@ -150,37 +150,35 @@ func (v *returnsVisitor) Visit(node ast.Node) ast.Visitor {
 	return v
 }
 
-func isCreateEmptyArray(expr ast.Expr) bool {
+func isCreateArray(expr ast.Expr) (ast.Expr, bool) {
 	switch e := expr.(type) {
 	case *ast.CompositeLit:
-		// []any{}
+		// []any{...}
 		_, ok := inferExprType(e.Type).(*ast.ArrayType)
-		return ok && len(e.Elts) == 0
+		if ok && len(e.Elts) > 0 {
+			return &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(len(e.Elts))}, true
+		}
+		return nil, ok
 	case *ast.CallExpr:
 		switch len(e.Args) {
 		case 1:
 			// []any(nil)
 			arg, ok := e.Args[0].(*ast.Ident)
 			if !ok || arg.Name != "nil" {
-				return false
+				return nil, false
 			}
 			_, ok = inferExprType(e.Fun).(*ast.ArrayType)
-			return ok
+			return nil, ok
 		case 2:
-			// make([]any, 0)
+			// make([]any, n)
 			ident, ok := e.Fun.(*ast.Ident)
 			if !ok || ident.Name != "make" {
-				return false
+				return nil, false
 			}
-			arg, ok := e.Args[1].(*ast.BasicLit)
-			if !ok || arg.Value != "0" {
-				return false
-			}
-			_, ok = inferExprType(e.Args[0]).(*ast.ArrayType)
-			return ok
+			return e.Args[1], true
 		}
 	}
-	return false
+	return nil, false
 }
 
 // handleLoops is a helper function to share the logic required for both *ast.RangeLoops and *ast.ForLoops
@@ -265,12 +263,12 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 		return
 	}
 
-	var capExpr ast.Expr
+	var countExpr ast.Expr
 	switch s := loopStmt.(type) {
 	case *ast.RangeStmt:
-		capExpr = rangeLoopCount(s)
+		countExpr = rangeLoopCount(s)
 	case *ast.ForStmt:
-		capExpr = forLoopCount(s)
+		countExpr = forLoopCount(s)
 	}
 
 	for name, appendCount := range appendCounters {
@@ -297,10 +295,10 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 
 			sliceDecl.eligible = true
 
-			if capExpr == nil {
+			if countExpr == nil {
 				sliceDecl.capExpr = invalid
-			} else if capExpr != invalid {
-				capExpr := capExpr
+			} else if countExpr != invalid {
+				capExpr := countExpr
 				if appendCount > 1 {
 					if capInt, ok := exprIntValue(capExpr); ok {
 						capExpr = &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(appendCount * capInt)}
@@ -312,10 +310,7 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 						}
 					}
 				}
-				if sliceDecl.capExpr != nil {
-					capExpr = &ast.BinaryExpr{X: sliceDecl.capExpr, Op: token.ADD, Y: capExpr}
-				}
-				sliceDecl.capExpr = capExpr
+				sliceDecl.capExpr = exprIntAdd(sliceDecl.capExpr, capExpr)
 			}
 		}
 	}
@@ -415,55 +410,54 @@ func forLoopCount(stmt *ast.ForStmt) ast.Expr {
 		lower, upper = upper, lower
 	}
 
-	plusOne := op == token.LEQ || op == token.GEQ
+	// negate the lower bound before adding
+	if unary, ok := lower.(*ast.UnaryExpr); ok && unary.Op == token.SUB {
+		lower = unary.X
+	} else {
+		lower = &ast.UnaryExpr{Op: token.SUB, X: lower}
+	}
 
-	if upperInt, ok := exprIntValue(upper); ok {
-		if plusOne {
-			upperInt++
+	countExpr := exprIntAdd(upper, lower)
+	if op == token.LEQ || op == token.GEQ {
+		countExpr = exprIntAdd(countExpr, &ast.BasicLit{Kind: token.INT, Value: "1"})
+	}
+	return countExpr
+}
+
+func exprIntAdd(x, y ast.Expr) ast.Expr {
+	if x == nil {
+		return y
+	}
+	if y == nil {
+		return x
+	}
+
+	xInt, xOK := exprIntValue(x)
+	yInt, yOK := exprIntValue(y)
+
+	if xOK && yOK {
+		return &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(xInt + yInt)}
+	}
+	if xOK {
+		if xInt == 0 {
+			return y
 		}
-		if lowerInt, ok := exprIntValue(lower); ok {
-			if count := upperInt - lowerInt; count > 0 {
-				return &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(count)}
-			}
-			return nil
-		}
-		if upperInt == 0 {
-			return &ast.UnaryExpr{Op: token.SUB, X: lower}
-		}
-		return &ast.BinaryExpr{
-			X:  &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(upperInt)},
-			Op: token.SUB,
-			Y:  lower,
-		}
-	} else if lowerInt, ok := exprIntValue(lower); ok {
-		if plusOne {
-			lowerInt--
-		}
-		if lowerInt == 0 {
-			return upper
-		}
-		if lowerInt < 0 {
-			return &ast.BinaryExpr{
-				X:  upper,
-				Op: token.ADD,
-				Y:  &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(-lowerInt)},
-			}
-		}
-		return &ast.BinaryExpr{
-			X:  upper,
-			Op: token.SUB,
-			Y:  &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(lowerInt)},
+		if xInt < 0 {
+			return &ast.BinaryExpr{X: y, Op: token.SUB, Y: &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(-xInt)}}
 		}
 	}
-	subExpr := &ast.BinaryExpr{X: upper, Op: token.SUB, Y: lower}
-	if plusOne {
-		return &ast.BinaryExpr{
-			X:  subExpr,
-			Op: token.ADD,
-			Y:  &ast.BasicLit{Kind: token.INT, Value: "1"},
+	if yOK {
+		if yInt == 0 {
+			return x
+		}
+		if yInt < 0 {
+			return &ast.BinaryExpr{X: x, Op: token.SUB, Y: &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(-yInt)}}
 		}
 	}
-	return subExpr
+	if unary, ok := y.(*ast.UnaryExpr); ok && unary.Op == token.SUB {
+		return &ast.BinaryExpr{X: x, Op: token.SUB, Y: unary.X}
+	}
+	return &ast.BinaryExpr{X: x, Op: token.ADD, Y: y}
 }
 
 func exprIntValue(expr ast.Expr) (int, bool) {
