@@ -66,36 +66,36 @@ func inferBinaryType(binary *ast.BinaryExpr) ast.Expr {
 	case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ:
 		return &ast.Ident{Name: "bool"}
 	default:
-		if x := inferExprType(binary.X); x != nil {
-			return x
+		if xType := inferExprType(binary.X); xType != nil {
+			return xType
 		}
 		return inferExprType(binary.Y)
 	}
 }
 
 func inferStarType(star *ast.StarExpr) ast.Expr {
-	switch x := inferExprType(star.X).(type) {
+	switch xType := inferExprType(star.X).(type) {
 	case nil:
 		return nil
 	case *ast.StarExpr:
-		return inferExprType(x.X)
+		return inferExprType(xType.X)
 	default:
-		return &ast.StarExpr{X: x}
+		return &ast.StarExpr{X: xType}
 	}
 }
 
 func inferUnaryType(unary *ast.UnaryExpr) ast.Expr {
-	if x := inferExprType(unary.X); x != nil {
+	if xType := inferExprType(unary.X); xType != nil {
 		switch unary.Op {
 		case token.AND:
-			return &ast.StarExpr{X: x}
+			return &ast.StarExpr{X: xType}
 		case token.ARROW:
-			if ct, ok := x.(*ast.ChanType); ok {
+			if ct, ok := xType.(*ast.ChanType); ok {
 				return inferExprType(ct.Value)
 			}
-			return x
+			return xType
 		default:
-			return x
+			return xType
 		}
 	}
 	return nil
@@ -118,25 +118,25 @@ func inferCallType(call *ast.CallExpr) ast.Expr {
 			}
 		case "new":
 			if len(call.Args) > 0 {
-				if arg := inferExprType(call.Args[0]); arg != nil {
-					return &ast.StarExpr{X: arg}
+				if argType := inferExprType(call.Args[0]); argType != nil {
+					return &ast.StarExpr{X: argType}
 				}
 			}
 		case "append":
 			if len(call.Args) > 0 {
-				if arg := inferExprType(call.Args[0]); arg != nil {
-					return arg
+				if argType := inferExprType(call.Args[0]); argType != nil {
+					return argType
 				}
 				return &ast.ArrayType{}
 			}
 		}
 	}
 
-	fun := inferExprType(call.Fun)
-	if ft, ok := fun.(*ast.FuncType); ok && len(ft.Results.List) > 0 {
+	funType := inferExprType(call.Fun)
+	if ft, ok := funType.(*ast.FuncType); ok && len(ft.Results.List) > 0 {
 		return inferExprType(ft.Results.List[0].Type)
 	}
-	return fun
+	return funType
 }
 
 func inferIndexType(index *ast.IndexExpr) ast.Expr {
@@ -154,13 +154,13 @@ func inferIndexType(index *ast.IndexExpr) ast.Expr {
 		}
 	}
 
-	switch x := inferExprType(index.X).(type) {
+	switch xType := inferExprType(index.X).(type) {
 	case *ast.ArrayType:
-		return inferExprType(x.Elt)
+		return inferExprType(xType.Elt)
 	case *ast.MapType:
-		return inferExprType(x.Value)
+		return inferExprType(xType.Value)
 	default:
-		return x
+		return xType
 	}
 }
 
@@ -182,19 +182,19 @@ func inferIndexListType(index *ast.IndexListExpr) ast.Expr {
 		}
 	}
 
-	x := inferExprType(index.X)
-	if at, ok := x.(*ast.ArrayType); ok {
+	xType := inferExprType(index.X)
+	if at, ok := xType.(*ast.ArrayType); ok {
 		return inferExprType(at.Elt)
 	}
-	return x
+	return xType
 }
 
 func inferSelectorType(sel *ast.SelectorExpr) ast.Expr {
-	x := inferExprType(sel.X)
-	if se, ok := x.(*ast.StarExpr); ok {
-		x = se.X
+	xType := inferExprType(sel.X)
+	if se, ok := xType.(*ast.StarExpr); ok {
+		xType = se.X
 	}
-	switch x := x.(type) {
+	switch x := xType.(type) {
 	case *ast.StructType:
 		for _, field := range x.Fields.List {
 			for _, name := range field.Names {
@@ -282,23 +282,23 @@ func inferAssignType(assign *ast.AssignStmt, name string) ast.Expr {
 
 	if len(assign.Rhs) == 1 {
 		if ue, ok := assign.Rhs[0].(*ast.UnaryExpr); ok && ue.Op == token.RANGE {
-			switch rhs := inferExprType(assign.Rhs[0]).(type) {
+			switch rhsType := inferExprType(assign.Rhs[0]).(type) {
 			case *ast.ArrayType:
 				switch index {
 				case 0:
 					return &ast.Ident{Name: "int"}
 				case 1:
-					return inferExprType(rhs.Elt)
+					return inferExprType(rhsType.Elt)
 				}
 			case *ast.MapType:
 				switch index {
 				case 0:
-					return inferExprType(rhs.Key)
+					return inferExprType(rhsType.Key)
 				case 1:
-					return inferExprType(rhs.Value)
+					return inferExprType(rhsType.Value)
 				}
 			case *ast.Ident:
-				if rhs.Name == "string" {
+				if rhsType.Name == "string" {
 					switch index {
 					case 0:
 						return &ast.Ident{Name: "int"}
@@ -308,7 +308,7 @@ func inferAssignType(assign *ast.AssignStmt, name string) ast.Expr {
 				}
 			case *ast.ChanType:
 				if index == 0 {
-					return inferExprType(rhs.Value)
+					return inferExprType(rhsType.Value)
 				}
 			}
 		}
@@ -331,8 +331,8 @@ func inferAssignMultiType(rhs ast.Expr, index int) ast.Expr {
 			return &ast.Ident{Name: "bool"}
 		}
 	case *ast.CallExpr:
-		if fun, ok := inferExprType(rhs.Fun).(*ast.FuncType); ok {
-			for _, res := range fun.Results.List {
+		if ft, ok := inferExprType(rhs.Fun).(*ast.FuncType); ok {
+			for _, res := range ft.Results.List {
 				for range res.Names {
 					if index == 0 {
 						return inferExprType(res.Type)
