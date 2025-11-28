@@ -86,12 +86,12 @@ func (v *returnsVisitor) Visit(node ast.Node) ast.Visitor {
 			if len(s.Lhs) != len(s.Rhs) {
 				continue
 			}
-			for index := range s.Lhs {
-				ident, ok := s.Lhs[index].(*ast.Ident)
+			for i, lhs := range s.Lhs {
+				ident, ok := lhs.(*ast.Ident)
 				if !ok {
 					continue
 				}
-				if lenExpr, ok := isCreateArray(s.Rhs[index]); ok {
+				if lenExpr, ok := isCreateArray(s.Rhs[i]); ok {
 					v.sliceDeclarations = append(v.sliceDeclarations, &sliceDeclaration{name: ident.Name, pos: s.Pos(), capExpr: lenExpr})
 				}
 			}
@@ -179,18 +179,18 @@ func isCreateArray(expr ast.Expr) (ast.Expr, bool) {
 // handleLoops is a helper function to share the logic required for both *ast.RangeLoops and *ast.ForLoops
 func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt) {
 	appendCounters := make(map[string]int, len(v.sliceDeclarations))
-	var returnsInsideOfLoop bool
+	var hasReturnOrBranch bool
 
 	for _, stmt := range blockStmt.List {
 		switch bodyStmt := stmt.(type) {
 		case *ast.AssignStmt:
 			asgnStmt := bodyStmt
-			for index, expr := range asgnStmt.Rhs {
-				if index >= len(asgnStmt.Lhs) {
+			for i, lhs := range asgnStmt.Lhs {
+				if i >= len(asgnStmt.Rhs) {
 					continue
 				}
 
-				lhsIdent, ok := asgnStmt.Lhs[index].(*ast.Ident)
+				lhsIdent, ok := lhs.(*ast.Ident)
 				if !ok {
 					continue
 				}
@@ -200,7 +200,7 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 					continue
 				}
 
-				callExpr, ok := expr.(*ast.CallExpr)
+				callExpr, ok := asgnStmt.Rhs[i].(*ast.CallExpr)
 				if !ok {
 					continue
 				}
@@ -248,7 +248,7 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 				// TODO: should probably handle embedded ifs here
 				switch ifBodyStmt.(type) {
 				case *ast.BranchStmt, *ast.ReturnStmt:
-					returnsInsideOfLoop = true
+					hasReturnOrBranch = true
 				}
 			}
 		}
@@ -292,7 +292,7 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 				break
 			}
 
-			if v.simple && returnsInsideOfLoop {
+			if v.simple && hasReturnOrBranch {
 				// ineligible due to return/break whilst in simple mode
 				sliceDecl.ineligible = true
 				break
@@ -380,8 +380,8 @@ func forLoopCount(stmt *ast.ForStmt) ast.Expr {
 	}
 
 	index := -1
-	for i := range initStmt.Lhs {
-		if ident, ok := initStmt.Lhs[i].(*ast.Ident); ok && ident.Name == postIdent.Name {
+	for i, lhs := range initStmt.Lhs {
+		if ident, ok := lhs.(*ast.Ident); ok && ident.Name == postIdent.Name {
 			index = i
 			break
 		}
