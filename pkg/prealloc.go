@@ -75,6 +75,9 @@ func (v *returnsVisitor) Visit(node ast.Node) ast.Visitor {
 					}
 				} else {
 					for i, vName := range vSpec.Names {
+						if i >= len(vSpec.Values) {
+							break
+						}
 						if lenExpr, ok := isCreateArray(vSpec.Values[i]); ok {
 							v.sliceDeclarations = append(v.sliceDeclarations, &sliceDeclaration{name: vName.Name, pos: s.Pos(), capExpr: lenExpr})
 						}
@@ -83,10 +86,10 @@ func (v *returnsVisitor) Visit(node ast.Node) ast.Visitor {
 			}
 
 		case *ast.AssignStmt:
-			if len(s.Lhs) != len(s.Rhs) {
-				continue
-			}
 			for i, lhs := range s.Lhs {
+				if i >= len(s.Rhs) {
+					break
+				}
 				ident, ok := lhs.(*ast.Ident)
 				if !ok {
 					continue
@@ -187,7 +190,7 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 			asgnStmt := bodyStmt
 			for i, lhs := range asgnStmt.Lhs {
 				if i >= len(asgnStmt.Rhs) {
-					continue
+					break
 				}
 
 				lhsIdent, ok := lhs.(*ast.Ident)
@@ -381,6 +384,9 @@ func forLoopCount(stmt *ast.ForStmt) ast.Expr {
 
 	index := -1
 	for i, lhs := range initStmt.Lhs {
+		if i >= len(initStmt.Rhs) {
+			break
+		}
 		if ident, ok := lhs.(*ast.Ident); ok && ident.Name == postIdent.Name {
 			index = i
 			break
