@@ -358,7 +358,7 @@ func rangeLoopCount(stmt *ast.RangeStmt) ast.Expr {
 		return nil
 	}
 
-	return &ast.CallExpr{Fun: &ast.Ident{Name: "len"}, Args: []ast.Expr{stmt.X}}
+	return &ast.CallExpr{Fun: ast.NewIdent("len"), Args: []ast.Expr{stmt.X}}
 }
 
 func forLoopCount(stmt *ast.ForStmt) ast.Expr {
