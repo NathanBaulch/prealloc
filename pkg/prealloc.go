@@ -100,11 +100,6 @@ func (v *returnsVisitor) Visit(node ast.Node) ast.Visitor {
 			if !v.includeRangeLoops || len(v.sliceDeclarations) == 0 {
 				continue
 			}
-			// Check the value being ranged over and ensure it's not a channel or an iterator function.
-			switch inferExprType(s.X).(type) {
-			case *ast.ChanType, *ast.FuncType:
-				continue
-			}
 			if s.Body != nil {
 				v.handleLoops(s, s.Body)
 			}
@@ -291,6 +286,12 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 				break
 			}
 
+			if countExpr == invalid {
+				// ineligible due to indeterminate loop count
+				sliceDecl.ineligible = true
+				break
+			}
+
 			if v.simple && returnsInsideOfLoop {
 				// ineligible due to return/break whilst in simple mode
 				sliceDecl.ineligible = true
@@ -307,27 +308,30 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 
 			if countExpr == nil {
 				sliceDecl.capExpr = invalid
-			} else if countExpr != invalid {
-				capExpr := countExpr
-				if appendCount > 1 {
-					if capInt, ok := exprIntValue(capExpr); ok {
-						capExpr = &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(appendCount * capInt)}
-					} else {
-						capExpr = &ast.BinaryExpr{
-							X:  &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(appendCount)},
-							Op: token.MUL,
-							Y:  capExpr,
-						}
+				break
+			}
+
+			capExpr := countExpr
+			if appendCount > 1 {
+				if capInt, ok := exprIntValue(capExpr); ok {
+					capExpr = &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(appendCount * capInt)}
+				} else {
+					capExpr = &ast.BinaryExpr{
+						X:  &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(appendCount)},
+						Op: token.MUL,
+						Y:  capExpr,
 					}
 				}
-				sliceDecl.capExpr = exprIntAdd(sliceDecl.capExpr, capExpr)
 			}
+			sliceDecl.capExpr = exprIntAdd(sliceDecl.capExpr, capExpr)
 		}
 	}
 }
 
 func rangeLoopCount(stmt *ast.RangeStmt) ast.Expr {
 	switch xType := inferExprType(stmt.X).(type) {
+	case *ast.ChanType, *ast.FuncType:
+		return invalid
 	case *ast.ArrayType, *ast.MapType:
 	case *ast.StarExpr:
 		if _, ok := xType.X.(*ast.ArrayType); !ok {
@@ -411,11 +415,11 @@ func forLoopCount(stmt *ast.ForStmt) ast.Expr {
 
 	if postStmt.Tok == token.INC {
 		if op == token.GTR || op == token.GEQ {
-			return nil
+			return invalid
 		}
 	} else {
 		if op == token.LSS || op == token.LEQ {
-			return nil
+			return invalid
 		}
 		lower, upper = upper, lower
 	}
