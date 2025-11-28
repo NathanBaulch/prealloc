@@ -182,18 +182,25 @@ func isCreateArray(expr ast.Expr) (ast.Expr, bool) {
 // handleLoops is a helper function to share the logic required for both *ast.RangeLoops and *ast.ForLoops
 func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt) {
 	appendCounters := make(map[string]int, len(v.sliceDeclarations))
-	var hasReturnOrBranch bool
+	var hasJumpOrNestedAppend bool
+	var depth int
 
-	for _, stmt := range blockStmt.List {
-		switch bodyStmt := stmt.(type) {
+	ast.Inspect(blockStmt, func(node ast.Node) bool {
+		if node != nil {
+			depth++
+		} else {
+			depth--
+			return true
+		}
+
+		switch stmt := node.(type) {
 		case *ast.AssignStmt:
-			asgnStmt := bodyStmt
-			for i, rhs := range asgnStmt.Rhs {
-				if i >= len(asgnStmt.Lhs) {
+			for i, rhs := range stmt.Rhs {
+				if i >= len(stmt.Lhs) {
 					break
 				}
 
-				lhsIdent, ok := asgnStmt.Lhs[i].(*ast.Ident)
+				lhsIdent, ok := stmt.Lhs[i].(*ast.Ident)
 				if !ok {
 					continue
 				}
@@ -204,18 +211,12 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 				}
 
 				callExpr, ok := rhs.(*ast.CallExpr)
-				if !ok {
+				if !ok || len(callExpr.Args) < 2 {
 					continue
 				}
 
 				rhsFuncIdent, ok := callExpr.Fun.(*ast.Ident)
 				if !ok || rhsFuncIdent.Name != "append" {
-					continue
-				}
-
-				// e.g., `x = append(x)`
-				// Pointless, but pre-allocation will not help.
-				if len(callExpr.Args) < 2 {
 					continue
 				}
 
@@ -240,22 +241,19 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 					continue
 				}
 
+				if depth > 2 {
+					hasJumpOrNestedAppend = true
+				}
+
 				appendCounters[lhsIdent.Name] += len(callExpr.Args) - 1
 			}
-		case *ast.IfStmt:
-			ifStmt := bodyStmt
-			if ifStmt.Body == nil {
-				continue
-			}
-			for _, ifBodyStmt := range ifStmt.Body.List {
-				// TODO: should probably handle embedded ifs here
-				switch ifBodyStmt.(type) {
-				case *ast.BranchStmt, *ast.ReturnStmt:
-					hasReturnOrBranch = true
-				}
-			}
+
+		case *ast.ReturnStmt, *ast.BranchStmt:
+			hasJumpOrNestedAppend = true
 		}
-	}
+
+		return true
+	})
 
 	if len(appendCounters) == 0 {
 		return
@@ -295,8 +293,8 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 				break
 			}
 
-			if v.simple && hasReturnOrBranch {
-				// ineligible due to return/break whilst in simple mode
+			if v.simple && hasJumpOrNestedAppend {
+				// ineligible due to control flow or nested appends
 				sliceDecl.ineligible = true
 				break
 			}
@@ -309,7 +307,7 @@ func (v *returnsVisitor) handleLoops(loopStmt ast.Stmt, blockStmt *ast.BlockStmt
 
 			sliceDecl.eligible = true
 
-			if countExpr == nil {
+			if countExpr == nil || hasJumpOrNestedAppend {
 				sliceDecl.capExpr = invalid
 				break
 			}

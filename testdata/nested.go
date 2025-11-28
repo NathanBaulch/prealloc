@@ -25,3 +25,44 @@ func nest() {
 		}
 	}
 }
+
+func nestedAppend() {
+	var x []int
+	for i := range "Hello" {
+		{
+			if true {
+				for {
+					x = append(x, i)
+				}
+			}
+		}
+	}
+}
+
+func nestedBreak() {
+	var x []int
+	for i := range "Hello" {
+		x = append(x, i)
+		{
+			if true {
+				for {
+					break
+				}
+			}
+		}
+	}
+}
+
+func nestedReturn() {
+	var x []int
+	for i := range "Hello" {
+		x = append(x, i)
+		{
+			if true {
+				for {
+					return
+				}
+			}
+		}
+	}
+}
