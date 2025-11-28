@@ -47,15 +47,15 @@ func inferExprType(expr ast.Expr) ast.Expr {
 func inferBasicType(basic *ast.BasicLit) ast.Expr {
 	switch basic.Kind {
 	case token.INT:
-		return &ast.Ident{Name: "int"}
+		return ast.NewIdent("int")
 	case token.FLOAT:
-		return &ast.Ident{Name: "float64"}
+		return ast.NewIdent("float64")
 	case token.IMAG:
-		return &ast.Ident{Name: "imag"}
+		return ast.NewIdent("imag")
 	case token.CHAR:
-		return &ast.Ident{Name: "char"}
+		return ast.NewIdent("char")
 	case token.STRING:
-		return &ast.Ident{Name: "string"}
+		return ast.NewIdent("string")
 	default:
 		return nil
 	}
@@ -64,7 +64,7 @@ func inferBasicType(basic *ast.BasicLit) ast.Expr {
 func inferBinaryType(binary *ast.BinaryExpr) ast.Expr {
 	switch binary.Op {
 	case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ:
-		return &ast.Ident{Name: "bool"}
+		return ast.NewIdent("bool")
 	default:
 		if xType := inferExprType(binary.X); xType != nil {
 			return xType
@@ -105,13 +105,13 @@ func inferCallType(call *ast.CallExpr) ast.Expr {
 	if id, ok := call.Fun.(*ast.Ident); ok && id.Obj == nil {
 		switch id.Name {
 		case "len", "cap", "copy":
-			return &ast.Ident{Name: "int"}
+			return ast.NewIdent("int")
 		case "real", "imag":
-			return &ast.Ident{Name: "float64"}
+			return ast.NewIdent("float64")
 		case "complex":
-			return &ast.Ident{Name: "complex64"}
+			return ast.NewIdent("complex64")
 		case "recover":
-			return &ast.Ident{Name: "any"}
+			return ast.NewIdent("any")
 		case "make", "min", "max":
 			if len(call.Args) > 0 {
 				return inferExprType(call.Args[0])
@@ -146,8 +146,8 @@ func inferIndexType(index *ast.IndexExpr) ast.Expr {
 				Params: &ast.FieldList{List: []*ast.Field{{
 					Names: []*ast.Ident{{Name: "yield"}},
 					Type: &ast.FuncType{
-						Params:  &ast.FieldList{List: []*ast.Field{{Type: &ast.Ident{Name: "V"}}}},
-						Results: &ast.FieldList{List: []*ast.Field{{Type: &ast.Ident{Name: "bool"}}}},
+						Params:  &ast.FieldList{List: []*ast.Field{{Type: ast.NewIdent("V")}}},
+						Results: &ast.FieldList{List: []*ast.Field{{Type: ast.NewIdent("bool")}}},
 					},
 				}}},
 			}
@@ -172,10 +172,10 @@ func inferIndexListType(index *ast.IndexListExpr) ast.Expr {
 					Names: []*ast.Ident{{Name: "yield"}},
 					Type: &ast.FuncType{
 						Params: &ast.FieldList{List: []*ast.Field{
-							{Type: &ast.Ident{Name: "K"}},
-							{Type: &ast.Ident{Name: "V"}},
+							{Type: ast.NewIdent("K")},
+							{Type: ast.NewIdent("V")},
 						}},
-						Results: &ast.FieldList{List: []*ast.Field{{Type: &ast.Ident{Name: "bool"}}}},
+						Results: &ast.FieldList{List: []*ast.Field{{Type: ast.NewIdent("bool")}}},
 					},
 				}}},
 			}
@@ -224,11 +224,11 @@ func inferIdentType(ident *ast.Ident) ast.Expr {
 			"float32", "float64", "complex64", "complex128":
 			return ident
 		case "nil":
-			return &ast.Ident{Name: "any"}
+			return ast.NewIdent("any")
 		case "true", "false":
-			return &ast.Ident{Name: "bool"}
+			return ast.NewIdent("bool")
 		case "iota":
-			return &ast.Ident{Name: "int"}
+			return ast.NewIdent("int")
 		}
 	} else {
 		switch decl := ident.Obj.Decl.(type) {
@@ -286,7 +286,7 @@ func inferAssignType(assign *ast.AssignStmt, name string) ast.Expr {
 			case *ast.ArrayType:
 				switch index {
 				case 0:
-					return &ast.Ident{Name: "int"}
+					return ast.NewIdent("int")
 				case 1:
 					return inferExprType(rhsType.Elt)
 				}
@@ -301,9 +301,9 @@ func inferAssignType(assign *ast.AssignStmt, name string) ast.Expr {
 				if rhsType.Name == "string" {
 					switch index {
 					case 0:
-						return &ast.Ident{Name: "int"}
+						return ast.NewIdent("int")
 					case 1:
-						return &ast.Ident{Name: "rune"}
+						return ast.NewIdent("rune")
 					}
 				}
 			case *ast.ChanType:
@@ -328,7 +328,7 @@ func inferAssignMultiType(rhs ast.Expr, index int) ast.Expr {
 		case 0:
 			return inferExprType(rhs.Type)
 		case 1:
-			return &ast.Ident{Name: "bool"}
+			return ast.NewIdent("bool")
 		}
 	case *ast.CallExpr:
 		if ft, ok := inferExprType(rhs.Fun).(*ast.FuncType); ok {
@@ -347,7 +347,7 @@ func inferAssignMultiType(rhs ast.Expr, index int) ast.Expr {
 			case 0:
 				return inferExprType(mt.Value)
 			case 1:
-				return &ast.Ident{Name: "bool"}
+				return ast.NewIdent("bool")
 			}
 		}
 	case *ast.UnaryExpr:
@@ -356,7 +356,7 @@ func inferAssignMultiType(rhs ast.Expr, index int) ast.Expr {
 			case 0:
 				return inferExprType(ct.Value)
 			case 1:
-				return &ast.Ident{Name: "bool"}
+				return ast.NewIdent("bool")
 			}
 		}
 	}
