@@ -198,3 +198,39 @@ func forTypeConvert() {
 		x = append(x, i)
 	}
 }
+
+func forMultipleConjunctiveUpperLimits() {
+	m := 7
+	n := 6
+	var x []int // want "Consider preallocating x with capacity min\\(m, n, 5\\)$"
+	for i := 0; i < m && i < n && i < 5; i++ {
+		x = append(x, i)
+	}
+}
+
+func forMultipleConjunctiveUpperLimitsWithMin() {
+	m := 7
+	n := 6
+	var x []int // want "Consider preallocating x with capacity min\\(n, 5, m\\)$"
+	for i := 0; i < m && i < min(n, 5); i++ {
+		x = append(x, i)
+	}
+}
+
+func forMultipleDisjunctiveUpperLimits() {
+	m := 3
+	n := 4
+	var x []int // want "Consider preallocating x with capacity max\\(m, n, 5\\)$"
+	for i := 0; i < m || i < n || i < 5; i++ {
+		x = append(x, i)
+	}
+}
+
+func forMultipleDisjunctiveUpperLimitsWithMax() {
+	m := 3
+	n := 4
+	var x []int // want "Consider preallocating x with capacity max\\(n, 5, m\\)$"
+	for i := 0; i < m || i < max(n, 5); i++ {
+		x = append(x, i)
+	}
+}
