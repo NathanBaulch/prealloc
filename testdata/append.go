@@ -25,3 +25,34 @@ func appendEllipsis() {
 		x = append(x, nums...)
 	}
 }
+
+func appendMultipleCalls() {
+	var x []int // want "Consider preallocating x with capacity 10$"
+	for i := range 5 {
+		x = append(x, i)
+		x = append(x, i)
+	}
+}
+
+func appendMultipleArgs() {
+	var x []int // want "Consider preallocating x with capacity 10$"
+	for i := range 5 {
+		x = append(x, i, i)
+	}
+}
+
+func appendMultipleRangeIntVar() {
+	n := 5
+	var x []int // want "Consider preallocating x with capacity 2 \\* n$"
+	for i := range n {
+		x = append(x, i, i)
+	}
+}
+
+func appendMultipleRangeStringVar() {
+	s := "Hello"
+	var x []int // want "Consider preallocating x with capacity 2 \\* len\\(s\\)$"
+	for i := range s {
+		x = append(x, i, i)
+	}
+}
