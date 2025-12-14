@@ -60,3 +60,21 @@ func externalTypeDefEmptyLit() {
 		x = append(x, i)
 	}
 }
+
+func recursiveTypeDef() {
+	type foo *foo
+	var f foo
+	_ = f
+}
+
+func recursiveTypeDef2() {
+	type foo **foo
+	var f foo
+	_ = f
+}
+
+func recursiveTypeDef3() {
+	type foo ***foo
+	var f foo
+	_ = f
+}
