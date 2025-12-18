@@ -42,6 +42,13 @@ func sliceVarAssignNilConvert() {
 	}
 }
 
+func sliceVarTypedAssignNil() {
+	var x []int = nil // want "Consider preallocating x with capacity 5$"
+	for i := range "Hello" {
+		x = append(x, i)
+	}
+}
+
 func sliceAlreadyInitialized() {
 	x := []int{1, 2, 3} // want "Consider preallocating x with capacity 8$"
 	for i := range "Hello" {
