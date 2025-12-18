@@ -63,3 +63,14 @@ func rangeFunc2Arg(seq func(func(int, int) bool)) {
 		x = append(x, i)
 	}
 }
+
+func rangeSeqThenInt() {
+	var seq iter.Seq[int]
+	var x []int
+	for i := range seq {
+		x = append(x, i)
+	}
+	for i := range 5 {
+		x = append(x, i)
+	}
+}

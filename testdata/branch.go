@@ -4,12 +4,12 @@ func returnBeforeAppend() {
 	if true {
 		return
 	}
-	var x []int // want "Consider preallocating x"
+	var x []int // want "Consider preallocating x with capacity 1$"
 	x = append(x, 0)
 }
 
 func returnAfterAppend() {
-	var x []int // want "Consider preallocating x"
+	var x []int // want "Consider preallocating x with capacity 1$"
 	x = append(x, 0)
 	if true {
 		return
@@ -20,7 +20,7 @@ func returnBeforeAndAfterAppend() {
 	if true {
 		return
 	}
-	var x []int // want "Consider preallocating x"
+	var x []int // want "Consider preallocating x with capacity 1$"
 	x = append(x, 0)
 	if true {
 		return
@@ -46,7 +46,7 @@ retry:
 }
 
 func gotoFuncLit() {
-	var x []int // want "Consider preallocating x"
+	var x []int // want "Consider preallocating x with capacity 1$"
 	x = append(x, 0)
 	f := func() {
 		var x []int
@@ -69,7 +69,7 @@ func breakLoop() {
 }
 
 func breakLoopWithoutAppend() {
-	var x []int // want "Consider preallocating x"
+	var x []int // want "Consider preallocating x with capacity 1$"
 	x = append(x, 0)
 	for range "Hello" {
 		break
@@ -87,7 +87,7 @@ func breakLoopConditional() {
 }
 
 func breakLoopSwitch() {
-	var x []int // want "Consider preallocating x"
+	var x []int // want "Consider preallocating x with capacity 5$"
 	for range "Hello" {
 		switch 0 {
 		case 0:
@@ -98,7 +98,7 @@ func breakLoopSwitch() {
 }
 
 func breakLoopTypeSwitch() {
-	var x []int // want "Consider preallocating x"
+	var x []int // want "Consider preallocating x with capacity 5$"
 	for range "Hello" {
 		switch any(x).(type) {
 		case []int:
@@ -109,7 +109,7 @@ func breakLoopTypeSwitch() {
 }
 
 func breakLoopSelect() {
-	var x []int // want "Consider preallocating x"
+	var x []int // want "Consider preallocating x with capacity 5$"
 	for range "Hello" {
 		var c chan int
 		select {
@@ -130,7 +130,7 @@ func continueLoop() {
 }
 
 func continueLoopWithoutAppend() {
-	var x []int // want "Consider preallocating x"
+	var x []int // want "Consider preallocating x with capacity 1$"
 	x = append(x, 0)
 	for range "Hello" {
 		continue

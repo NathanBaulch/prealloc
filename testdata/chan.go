@@ -24,3 +24,14 @@ func rangeChanArg(ch chan int) {
 		x = append(x, i)
 	}
 }
+
+func rangeChanThenInt() {
+	var ch chan int
+	var x []int
+	for i := range ch {
+		x = append(x, i)
+	}
+	for i := range 5 {
+		x = append(x, i)
+	}
+}
