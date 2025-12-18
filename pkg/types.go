@@ -237,6 +237,17 @@ func inferIdentType(ident *ast.Ident) ast.Expr {
 		case *ast.FuncDecl:
 			return inferExprType(decl.Type)
 		case *ast.TypeSpec:
+			// abort when recursive pointer type detected
+			t := decl.Type
+			for {
+				if star, ok := t.(*ast.StarExpr); ok {
+					t = star.X
+				} else if t == ident {
+					return nil
+				} else {
+					break
+				}
+			}
 			return inferExprType(decl.Type)
 		case *ast.ValueSpec:
 			return inferValueType(decl, ident.Name)
