@@ -60,7 +60,7 @@ func rangeStringArg(s string) {
 	}
 }
 
-func rangeSlice() {
+func rangeSliceVar() {
 	var a []int
 	var x []int // want "Consider preallocating x with capacity len\\(a\\)$"
 	for i := range a {
@@ -68,7 +68,14 @@ func rangeSlice() {
 	}
 }
 
-func rangeArray() {
+func rangeSliceLit() {
+	var x []int // want "Consider preallocating x with capacity 3$"
+	for i := range []int{1, 2, 3} {
+		x = append(x, i)
+	}
+}
+
+func rangeArrayVar() {
 	var a [5]int
 	var x []int // want "Consider preallocating x with capacity len\\(a\\)$"
 	for i := range a {
@@ -76,7 +83,14 @@ func rangeArray() {
 	}
 }
 
-func rangeArrayPointer() {
+func rangeArrayLit() {
+	var x []int // want "Consider preallocating x with capacity 5$"
+	for i := range [5]int{1, 2, 3} {
+		x = append(x, i)
+	}
+}
+
+func rangeArrayPointerVar() {
 	var a *[5]int
 	var x []int // want "Consider preallocating x with capacity len\\(a\\)$"
 	for i := range a {
@@ -84,10 +98,24 @@ func rangeArrayPointer() {
 	}
 }
 
-func rangeMap() {
+func rangeArrayPointerLit() {
+	var x []int // want "Consider preallocating x with capacity 5$"
+	for i := range &[5]int{1, 2, 3} {
+		x = append(x, i)
+	}
+}
+
+func rangeMapVar() {
 	var m map[int]int
 	var x []int // want "Consider preallocating x with capacity len\\(m\\)$"
 	for i := range m {
+		x = append(x, i)
+	}
+}
+
+func rangeMapLit() {
+	var x []int // want "Consider preallocating x with capacity 2$"
+	for i := range map[int]int{1: 2, 3: 4} {
 		x = append(x, i)
 	}
 }
@@ -125,6 +153,38 @@ func rangeMultipleWithPartialUnresolvedCapacity() {
 	}
 	var s sort.IntSlice
 	for i := range s {
+		x = append(x, i)
+	}
+}
+
+func rangeSliceReslice() {
+	var a []int
+	var x []int // want "Consider preallocating x with capacity len\\(a\\)$"
+	for i := range a[:] {
+		x = append(x, i)
+	}
+}
+
+func rangeSlicePrefix() {
+	var a []int
+	var x []int // want "Consider preallocating x with capacity 4$"
+	for i := range a[:4] {
+		x = append(x, i)
+	}
+}
+
+func rangeSliceSubslice() {
+	var a []int
+	var x []int // want "Consider preallocating x with capacity 2$"
+	for i := range a[2:4] {
+		x = append(x, i)
+	}
+}
+
+func rangeSliceSuffix() {
+	var a []int
+	var x []int // want "Consider preallocating x with capacity len\\(a\\) - 2$"
+	for i := range a[2:] {
 		x = append(x, i)
 	}
 }

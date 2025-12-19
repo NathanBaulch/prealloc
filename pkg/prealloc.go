@@ -381,10 +381,24 @@ func rangeLoopCount(stmt *ast.RangeStmt) (ast.Expr, bool) {
 	switch xType := inferExprType(stmt.X).(type) {
 	case *ast.ChanType, *ast.FuncType:
 		return nil, false
-	case *ast.ArrayType, *ast.MapType:
+	case *ast.ArrayType:
+		if lit, ok := stmt.X.(*ast.CompositeLit); ok {
+			if xType.Len != nil {
+				return xType.Len, true
+			}
+			return intExpr(len(lit.Elts)), true
+		}
+	case *ast.MapType:
+		if lit, ok := stmt.X.(*ast.CompositeLit); ok {
+			return intExpr(len(lit.Elts)), true
+		}
 	case *ast.StarExpr:
-		if _, ok := xType.X.(*ast.ArrayType); !ok {
+		if xType, ok := xType.X.(*ast.ArrayType); !ok || xType.Len == nil {
 			return nil, true
+		} else if unary, ok := stmt.X.(*ast.UnaryExpr); ok && unary.Op == token.AND {
+			if _, ok := unary.X.(*ast.CompositeLit); ok {
+				return xType.Len, true
+			}
 		}
 	case *ast.Ident:
 		switch xType.Name {
@@ -402,6 +416,17 @@ func rangeLoopCount(stmt *ast.RangeStmt) (ast.Expr, bool) {
 		}
 	default:
 		return nil, true
+	}
+
+	if slice, ok := stmt.X.(*ast.SliceExpr); ok {
+		high := slice.High
+		if high == nil {
+			high = &ast.CallExpr{Fun: ast.NewIdent("len"), Args: []ast.Expr{slice.X}}
+		}
+		if slice.Low != nil {
+			return subIntExpr(high, slice.Low), true
+		}
+		return high, true
 	}
 
 	return &ast.CallExpr{Fun: ast.NewIdent("len"), Args: []ast.Expr{stmt.X}}, true
