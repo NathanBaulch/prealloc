@@ -136,31 +136,22 @@ func (v *returnsVisitor) Visit(node ast.Node) ast.Visitor {
 		v.sliceAppends = v.sliceAppends[:appendIdx]
 		return nil
 
-	case *ast.DeclStmt:
-		genD, ok := s.Decl.(*ast.GenDecl)
-		if !ok || genD.Tok != token.VAR {
-			return nil
-		}
-		for _, spec := range genD.Specs {
-			vSpec, ok := spec.(*ast.ValueSpec)
-			if !ok {
-				continue
-			}
-			if len(vSpec.Values) == 0 {
-				if _, ok := inferExprType(vSpec.Type).(*ast.ArrayType); ok {
-					for _, vName := range vSpec.Names {
-						v.sliceDeclarations = append(v.sliceDeclarations, &sliceDeclaration{name: vName.Name, pos: s.Pos(), level: v.level, lenExpr: intExpr(0)})
-					}
+	case *ast.ValueSpec:
+		_, isArrayType := inferExprType(s.Type).(*ast.ArrayType)
+		for i, name := range s.Names {
+			var lenExpr ast.Expr
+			if i >= len(s.Values) {
+				if !isArrayType {
+					continue
 				}
-			} else {
-				for i, vName := range vSpec.Names {
-					if i < len(vSpec.Values) {
-						if lenExpr := isCreateArray(vSpec.Values[i]); lenExpr != nil {
-							v.sliceDeclarations = append(v.sliceDeclarations, &sliceDeclaration{name: vName.Name, pos: s.Pos(), level: v.level, lenExpr: lenExpr})
-						}
-					}
+				lenExpr = intExpr(0)
+			} else if lenExpr = isCreateArray(s.Values[i]); lenExpr == nil {
+				if id, ok := s.Values[i].(*ast.Ident); !ok || id.Name != "nil" {
+					continue
 				}
+				lenExpr = intExpr(0)
 			}
+			v.sliceDeclarations = append(v.sliceDeclarations, &sliceDeclaration{name: name.Name, pos: s.Pos(), level: v.level, lenExpr: lenExpr})
 		}
 
 	case *ast.AssignStmt:
