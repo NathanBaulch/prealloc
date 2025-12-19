@@ -68,25 +68,49 @@ func sliceVarTypedAlreadyInitialized() {
 	}
 }
 
-func sliceAlreadyAllocated() {
+func sliceAlreadyFilled() {
 	x := make([]int, 5) // want "Consider preallocating x with capacity 10$"
 	for i := range "Hello" {
 		x = append(x, i)
 	}
 }
 
-func sliceVarAlreadyAllocated() {
+func sliceVarAlreadyFilled() {
 	var x = make([]int, 5) // want "Consider preallocating x with capacity 10$"
 	for i := range "Hello" {
 		x = append(x, i)
 	}
 }
 
-func sliceVarTypedAlreadyAllocated() {
+func sliceVarTypedAlreadyFilled() {
 	var x []int = make([]int, 5) // want "Consider preallocating x with capacity 10$"
 	for i := range "Hello" {
 		x = append(x, i)
 	}
+}
+
+func sliceVarAllocatedBeforeAppend() {
+	var x []int
+	x = make([]int, 0, 1)
+	x = append(x, 0)
+}
+
+func sliceVarAllocatedAfterAppend() {
+	var x []int
+	x = append(x, 0)
+	x = make([]int, 0, 1)
+}
+
+func sliceVarReassignedBeforeAppend(y []int) {
+	var x []int
+	x = y
+	x = append(x, 0)
+}
+
+func sliceVarReassignedAfterAppend(y []int) {
+	var x []int
+	x = append(x, 0)
+	x = y
 }
 
 func sliceVarReused() {

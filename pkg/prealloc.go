@@ -5,7 +5,6 @@ import (
 	"go/ast"
 	"go/format"
 	"go/token"
-	"slices"
 	"strconv"
 
 	"golang.org/x/tools/go/analysis"
@@ -175,38 +174,35 @@ func (v *returnsVisitor) Visit(node ast.Node) ast.Visitor {
 			if lenExpr := isCreateArray(s.Rhs[i]); lenExpr != nil {
 				v.sliceDeclarations = append(v.sliceDeclarations, &sliceDeclaration{name: ident.Name, pos: s.Pos(), level: v.level, lenExpr: lenExpr})
 			} else {
+				declIdx := -1
+				for i := len(v.sliceDeclarations) - 1; i >= 0; i-- {
+					if v.sliceDeclarations[i].name == ident.Name {
+						declIdx = i
+						break
+					}
+				}
+				if declIdx < 0 {
+					continue
+				}
+				sliceDecl := v.sliceDeclarations[declIdx]
 				switch expr := s.Rhs[i].(type) {
 				case *ast.Ident:
 					// create a new slice declaration when reinitializing an existing slice to nil
-					if s.Tok != token.ASSIGN || expr.Name != "nil" {
-						continue
-					}
-					if slices.ContainsFunc(v.sliceDeclarations, func(sliceDecl *sliceDeclaration) bool { return sliceDecl.name == ident.Name }) {
+					if s.Tok == token.ASSIGN && expr.Name == "nil" {
 						v.sliceDeclarations = append(v.sliceDeclarations, &sliceDeclaration{name: ident.Name, pos: s.Pos(), level: v.level, lenExpr: intExpr(0)})
+						continue
 					}
 				case *ast.CallExpr:
-					if len(expr.Args) < 2 {
-						continue
-					}
-					if funIdent, ok := expr.Fun.(*ast.Ident); !ok || funIdent.Name != "append" {
-						continue
-					}
-					rhsIdent, ok := expr.Args[0].(*ast.Ident)
-					if !ok {
-						continue
-					}
-					for i := len(v.sliceDeclarations) - 1; i >= 0; i-- {
-						sliceDecl := v.sliceDeclarations[i]
-						if sliceDecl.name == ident.Name {
-							if expr.Ellipsis.IsValid() || ident.Name != rhsIdent.Name || sliceDecl.hasReturn || sliceDecl.level != v.level {
-								sliceDecl.exclude = true
-							} else {
-								v.sliceAppends = append(v.sliceAppends, &sliceAppend{index: i, countExpr: intExpr(len(expr.Args) - 1)})
+					if !expr.Ellipsis.IsValid() && len(expr.Args) >= 2 && !sliceDecl.hasReturn && sliceDecl.level == v.level {
+						if funIdent, ok := expr.Fun.(*ast.Ident); ok && funIdent.Name == "append" {
+							if rhsIdent, ok := expr.Args[0].(*ast.Ident); ok && ident.Name == rhsIdent.Name {
+								v.sliceAppends = append(v.sliceAppends, &sliceAppend{index: declIdx, countExpr: intExpr(len(expr.Args) - 1)})
+								continue
 							}
-							break
 						}
 					}
 				}
+				sliceDecl.exclude = true
 			}
 		}
 
