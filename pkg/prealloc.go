@@ -184,10 +184,16 @@ func (v *returnsVisitor) Visit(node ast.Node) ast.Visitor {
 						continue
 					}
 				case *ast.CallExpr:
-					if !expr.Ellipsis.IsValid() && len(expr.Args) >= 2 && !sliceDecl.hasReturn && sliceDecl.level == v.level {
+					if len(expr.Args) >= 2 && !sliceDecl.hasReturn && sliceDecl.level == v.level {
 						if funIdent, ok := expr.Fun.(*ast.Ident); ok && funIdent.Name == "append" {
 							if rhsIdent, ok := expr.Args[0].(*ast.Ident); ok && ident.Name == rhsIdent.Name {
-								v.sliceAppends = append(v.sliceAppends, &sliceAppend{index: declIdx, countExpr: intExpr(len(expr.Args) - 1)})
+								var countExpr ast.Expr
+								if expr.Ellipsis.IsValid() {
+									countExpr = appendEllipsisCount(expr.Args[1])
+								} else {
+									countExpr = intExpr(len(expr.Args) - 1)
+								}
+								v.sliceAppends = append(v.sliceAppends, &sliceAppend{index: declIdx, countExpr: countExpr})
 								continue
 							}
 						}
@@ -329,6 +335,48 @@ func isCreateArray(expr ast.Expr) ast.Expr {
 	return nil
 }
 
+func appendEllipsisCount(expr ast.Expr) ast.Expr {
+	switch xType := inferExprType(expr).(type) {
+	case *ast.ArrayType:
+		if lit, ok := expr.(*ast.CompositeLit); ok {
+			return intExpr(len(lit.Elts))
+		}
+	case *ast.Ident:
+		if xType.Name == "string" {
+			if lit, ok := expr.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				if str, err := strconv.Unquote(lit.Value); err == nil {
+					return intExpr(len(str))
+				}
+			}
+		}
+	default:
+		return nil
+	}
+
+	var hasCall bool
+	ast.Inspect(expr, func(n ast.Node) bool {
+		_, ok := n.(*ast.CallExpr)
+		hasCall = hasCall || ok
+		return !ok
+	})
+	if hasCall {
+		return nil
+	}
+
+	if slice, ok := expr.(*ast.SliceExpr); ok {
+		high := slice.High
+		if high == nil {
+			high = &ast.CallExpr{Fun: ast.NewIdent("len"), Args: []ast.Expr{slice.X}}
+		}
+		if slice.Low != nil {
+			return subIntExpr(high, slice.Low)
+		}
+		return high
+	}
+
+	return &ast.CallExpr{Fun: ast.NewIdent("len"), Args: []ast.Expr{expr}}
+}
+
 func rangeLoopCount(stmt *ast.RangeStmt) (ast.Expr, bool) {
 	switch xType := inferExprType(stmt.X).(type) {
 	case *ast.ChanType, *ast.FuncType:
@@ -429,14 +477,7 @@ func forLoopCount(stmt *ast.ForStmt) (ast.Expr, bool) {
 		lower, upper = upper, lower
 	}
 
-	// negate the lower bound before adding
-	if unary, ok := lower.(*ast.UnaryExpr); ok && unary.Op == token.SUB {
-		lower = unary.X
-	} else {
-		lower = &ast.UnaryExpr{Op: token.SUB, X: lower}
-	}
-
-	countExpr := addIntExpr(upper, lower)
+	countExpr := subIntExpr(upper, lower)
 	if op == token.LEQ || op == token.GEQ {
 		countExpr = addIntExpr(countExpr, intExpr(1))
 	}

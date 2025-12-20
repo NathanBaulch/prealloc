@@ -39,6 +39,15 @@ func addIntExpr(x, y ast.Expr) ast.Expr {
 	return &ast.BinaryExpr{X: x, Op: token.ADD, Y: y}
 }
 
+func subIntExpr(x, y ast.Expr) ast.Expr {
+	if unary, ok := y.(*ast.UnaryExpr); ok && unary.Op == token.SUB {
+		y = unary.X
+	} else {
+		y = &ast.UnaryExpr{Op: token.SUB, X: y}
+	}
+	return addIntExpr(x, y)
+}
+
 func mulIntExpr(x, y ast.Expr) ast.Expr {
 	if x == nil || y == nil {
 		return nil
@@ -59,7 +68,7 @@ func mulIntExpr(x, y ast.Expr) ast.Expr {
 		}
 	}
 	if yOK {
-		if xInt == 0 {
+		if yInt == 0 {
 			return intExpr(0)
 		}
 		if yInt == 1 {
