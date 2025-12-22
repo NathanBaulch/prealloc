@@ -417,11 +417,6 @@ func forLoopCount(stmt *ast.ForStmt) (ast.Expr, bool) {
 		return nil, true
 	}
 
-	condExpr, ok := stmt.Cond.(*ast.BinaryExpr)
-	if !ok {
-		return nil, true
-	}
-
 	postStmt, ok := stmt.Post.(*ast.IncDecStmt)
 	if !ok {
 		return nil, true
@@ -444,27 +439,7 @@ func forLoopCount(stmt *ast.ForStmt) (ast.Expr, bool) {
 	}
 
 	lower := initStmt.Rhs[index]
-	var upper ast.Expr
-	op := condExpr.Op
-	if x, ok := condExpr.X.(*ast.Ident); ok && x.Name == postIdent.Name {
-		upper = condExpr.Y
-	} else if y, ok := condExpr.Y.(*ast.Ident); ok && y.Name == postIdent.Name {
-		// reverse the inequality
-		upper = condExpr.X
-		switch op {
-		case token.LSS:
-			op = token.GTR
-		case token.GTR:
-			op = token.LSS
-		case token.LEQ:
-			op = token.GEQ
-		case token.GEQ:
-			op = token.LEQ
-		default:
-		}
-	} else {
-		return nil, true
-	}
+	upper, op := forLoopUpperBound(stmt.Cond, postIdent.Name)
 
 	if postStmt.Tok == token.INC {
 		if op == token.GTR || op == token.GEQ {
@@ -482,4 +457,64 @@ func forLoopCount(stmt *ast.ForStmt) (ast.Expr, bool) {
 		countExpr = addIntExpr(countExpr, intExpr(1))
 	}
 	return countExpr, true
+}
+
+func forLoopUpperBound(expr ast.Expr, name string) (ast.Expr, token.Token) {
+	binExpr, ok := expr.(*ast.BinaryExpr)
+	if !ok {
+		return nil, 0
+	}
+
+	switch binExpr.Op {
+	case token.LAND, token.LOR:
+		if xExpr, xOp := forLoopUpperBound(binExpr.X, name); xExpr != nil {
+			if yExpr, yOp := forLoopUpperBound(binExpr.Y, name); yExpr != nil {
+				if xOp == yOp {
+					var funName string
+					if binExpr.Op == token.LAND {
+						funName = "min"
+					} else {
+						funName = "max"
+					}
+					if call, ok := xExpr.(*ast.CallExpr); ok {
+						if ident, ok := call.Fun.(*ast.Ident); ok && ident.Name == funName {
+							call.Args = append(call.Args, yExpr)
+							return xExpr, xOp
+						}
+					}
+					if call, ok := yExpr.(*ast.CallExpr); ok {
+						if ident, ok := call.Fun.(*ast.Ident); ok && ident.Name == funName {
+							call.Args = append(call.Args, xExpr)
+							return yExpr, yOp
+						}
+					}
+					return &ast.CallExpr{Fun: ast.NewIdent(funName), Args: []ast.Expr{xExpr, yExpr}}, xOp
+				}
+			}
+		}
+
+	case token.LSS, token.GTR, token.LEQ, token.GEQ, token.NEQ:
+		if ident, ok := binExpr.X.(*ast.Ident); ok && ident.Name == name {
+			return binExpr.Y, binExpr.Op
+		} else if ident, ok := binExpr.Y.(*ast.Ident); ok && ident.Name == name {
+			// reverse the inequality
+			op := binExpr.Op
+			switch op {
+			case token.LSS:
+				op = token.GTR
+			case token.GTR:
+				op = token.LSS
+			case token.LEQ:
+				op = token.GEQ
+			case token.GEQ:
+				op = token.LEQ
+			default:
+			}
+			return binExpr.X, op
+		}
+
+	default:
+	}
+
+	return nil, 0
 }
