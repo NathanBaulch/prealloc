@@ -336,6 +336,10 @@ func isCreateArray(expr ast.Expr) ast.Expr {
 }
 
 func appendEllipsisCount(expr ast.Expr) ast.Expr {
+	if hasCall(expr) {
+		return nil
+	}
+
 	switch xType := inferExprType(expr).(type) {
 	case *ast.ArrayType:
 		if lit, ok := expr.(*ast.CompositeLit); ok {
@@ -350,16 +354,6 @@ func appendEllipsisCount(expr ast.Expr) ast.Expr {
 			}
 		}
 	default:
-		return nil
-	}
-
-	var hasCall bool
-	ast.Inspect(expr, func(n ast.Node) bool {
-		_, ok := n.(*ast.CallExpr)
-		hasCall = hasCall || ok
-		return !ok
-	})
-	if hasCall {
 		return nil
 	}
 
@@ -378,7 +372,9 @@ func appendEllipsisCount(expr ast.Expr) ast.Expr {
 }
 
 func rangeLoopCount(stmt *ast.RangeStmt) (ast.Expr, bool) {
-	switch xType := inferExprType(stmt.X).(type) {
+	xType := inferExprType(stmt.X)
+
+	switch xType := xType.(type) {
 	case *ast.ChanType, *ast.FuncType:
 		return nil, false
 	case *ast.ArrayType:
@@ -401,21 +397,30 @@ func rangeLoopCount(stmt *ast.RangeStmt) (ast.Expr, bool) {
 			}
 		}
 	case *ast.Ident:
-		switch xType.Name {
-		case "byte", "rune", "int", "int8", "int16", "int32", "int64",
-			"uint", "uint8", "uint16", "uint32", "uint64", "uintptr":
-			return stmt.X, true
-		case "string":
+		if xType.Name == "string" {
 			if lit, ok := stmt.X.(*ast.BasicLit); ok && lit.Kind == token.STRING {
 				if str, err := strconv.Unquote(lit.Value); err == nil {
 					return intExpr(len(str)), true
 				}
 			}
-		default:
-			return nil, true
 		}
 	default:
 		return nil, true
+	}
+
+	if hasCall(stmt.X) {
+		return nil, true
+	}
+
+	if ident, ok := xType.(*ast.Ident); ok {
+		switch ident.Name {
+		case "byte", "rune", "int", "int8", "int16", "int32", "int64",
+			"uint", "uint8", "uint16", "uint32", "uint64", "uintptr":
+			return stmt.X, true
+		case "string":
+		default:
+			return nil, true
+		}
 	}
 
 	if slice, ok := stmt.X.(*ast.SliceExpr); ok {
@@ -464,6 +469,10 @@ func forLoopCount(stmt *ast.ForStmt) (ast.Expr, bool) {
 	}
 
 	lower := initStmt.Rhs[index]
+	if hasCall(lower) {
+		return nil, true
+	}
+
 	upper, op := forLoopUpperBound(stmt.Cond, postIdent.Name)
 
 	if postStmt.Tok == token.INC {
@@ -520,8 +529,14 @@ func forLoopUpperBound(expr ast.Expr, name string) (ast.Expr, token.Token) {
 
 	case token.LSS, token.GTR, token.LEQ, token.GEQ, token.NEQ:
 		if ident, ok := binExpr.X.(*ast.Ident); ok && ident.Name == name {
+			if hasCall(binExpr.Y) {
+				return nil, 0
+			}
 			return binExpr.Y, binExpr.Op
 		} else if ident, ok := binExpr.Y.(*ast.Ident); ok && ident.Name == name {
+			if hasCall(binExpr.X) {
+				return nil, 0
+			}
 			// reverse the inequality
 			op := binExpr.Op
 			switch op {
@@ -542,4 +557,34 @@ func forLoopUpperBound(expr ast.Expr, name string) (ast.Expr, token.Token) {
 	}
 
 	return nil, 0
+}
+
+func hasCall(expr ast.Expr) bool {
+	var found bool
+	ast.Inspect(expr, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok {
+			switch fun := call.Fun.(type) {
+			case *ast.ArrayType, *ast.MapType:
+				// allow array/map type convertion
+				return true
+			case *ast.Ident:
+				switch fun.Name {
+				case "bool", "error", "string", "any",
+					"byte", "rune", "int", "int8", "int16", "int32", "int64",
+					"uint", "uint8", "uint16", "uint32", "uint64", "uintptr",
+					"float32", "float64", "complex64", "complex128":
+					// allow built-in type conversions
+					if len(call.Args) == 1 {
+						return true
+					}
+				case "len", "cap", "real", "imag", "min", "max", "complex":
+					// allow cheap pure built-in functions
+					return true
+				}
+			}
+			found = true
+		}
+		return !found
+	})
+	return found
 }

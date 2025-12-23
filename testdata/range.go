@@ -45,6 +45,14 @@ func rangeString() {
 	}
 }
 
+func rangeIntFunc() {
+	fn := func() int { return 5 }
+	var x []int // want "Consider preallocating x$"
+	for i := range fn() {
+		x = append(x, i)
+	}
+}
+
 func rangeStringVar() {
 	s := "Hello"
 	var x []int // want "Consider preallocating x with capacity len\\(s\\)$"
@@ -56,6 +64,14 @@ func rangeStringVar() {
 func rangeStringArg(s string) {
 	var x []int // want "Consider preallocating x with capacity len\\(s\\)$"
 	for i := range s {
+		x = append(x, i)
+	}
+}
+
+func rangeStringFunc() {
+	fn := func() string { return "Hello" }
+	var x []int // want "Consider preallocating x$"
+	for i := range fn() {
 		x = append(x, i)
 	}
 }
@@ -83,9 +99,25 @@ func rangeArrayVar() {
 	}
 }
 
+func rangeSliceFunc() {
+	fn := func() []int { return []int{1, 2, 3} }
+	var x []int // want "Consider preallocating x$"
+	for i := range fn() {
+		x = append(x, i)
+	}
+}
+
 func rangeArrayLit() {
 	var x []int // want "Consider preallocating x with capacity 5$"
 	for i := range [5]int{1, 2, 3} {
+		x = append(x, i)
+	}
+}
+
+func rangeArrayFunc() {
+	fn := func() [5]int { return [5]int{1, 2, 3} }
+	var x []int // want "Consider preallocating x$"
+	for i := range fn() {
 		x = append(x, i)
 	}
 }
@@ -105,6 +137,14 @@ func rangeArrayPointerLit() {
 	}
 }
 
+func rangeArrayPointerFunc() {
+	fn := func() *[5]int { return &[5]int{1, 2, 3} }
+	var x []int // want "Consider preallocating x$"
+	for i := range fn() {
+		x = append(x, i)
+	}
+}
+
 func rangeMapVar() {
 	var m map[int]int
 	var x []int // want "Consider preallocating x with capacity len\\(m\\)$"
@@ -116,6 +156,14 @@ func rangeMapVar() {
 func rangeMapLit() {
 	var x []int // want "Consider preallocating x with capacity 2$"
 	for i := range map[int]int{1: 2, 3: 4} {
+		x = append(x, i)
+	}
+}
+
+func rangeMapFunc() {
+	fn := func() map[int]int { return map[int]int{1: 2, 3: 4} }
+	var x []int // want "Consider preallocating x$"
+	for i := range fn() {
 		x = append(x, i)
 	}
 }

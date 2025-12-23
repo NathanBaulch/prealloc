@@ -234,3 +234,19 @@ func forMultipleDisjunctiveUpperLimitsWithMax() {
 		x = append(x, i)
 	}
 }
+
+func forLowerLimitFunc() {
+	fn := func() int { return 0 }
+	var x []int // want "Consider preallocating x$"
+	for i := fn(); i < 5; i++ {
+		x = append(x, i)
+	}
+}
+
+func forUpperLimitFunc() {
+	fn := func() int { return 5 }
+	var x []int // want "Consider preallocating x$"
+	for i := 0; i < fn(); i++ {
+		x = append(x, i)
+	}
+}
