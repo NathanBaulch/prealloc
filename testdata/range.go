@@ -91,6 +91,13 @@ func rangeSliceLit() {
 	}
 }
 
+func rangeSliceTypeConvert() {
+	var x []int // want "Consider preallocating x with capacity 5$"
+	for i := range []byte("Hello") {
+		x = append(x, i)
+	}
+}
+
 func rangeArrayVar() {
 	var a [5]int
 	var x []int // want "Consider preallocating x with capacity len\\(a\\)$"

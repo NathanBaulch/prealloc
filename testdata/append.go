@@ -79,6 +79,13 @@ func appendEllipsisFunc() {
 	}
 }
 
+func appendEllipsisTypeConvert() {
+	var x []byte // want "Consider preallocating x with capacity 25$"
+	for range 5 {
+		x = append(x, []byte("Hello")...)
+	}
+}
+
 func appendMultipleCalls() {
 	var x []int // want "Consider preallocating x with capacity 10$"
 	for i := range 5 {

@@ -336,6 +336,12 @@ func isCreateArray(expr ast.Expr) ast.Expr {
 }
 
 func appendEllipsisCount(expr ast.Expr) ast.Expr {
+	if call, ok := expr.(*ast.CallExpr); ok && len(call.Args) == 1 {
+		if _, ok := call.Fun.(*ast.ArrayType); ok {
+			expr = call.Args[0]
+		}
+	}
+
 	if hasCall(expr) {
 		return nil
 	}
@@ -372,7 +378,14 @@ func appendEllipsisCount(expr ast.Expr) ast.Expr {
 }
 
 func rangeLoopCount(stmt *ast.RangeStmt) (ast.Expr, bool) {
-	xType := inferExprType(stmt.X)
+	x := stmt.X
+	if call, ok := x.(*ast.CallExpr); ok && len(call.Args) == 1 {
+		if _, ok := call.Fun.(*ast.ArrayType); ok {
+			x = call.Args[0]
+		}
+	}
+
+	xType := inferExprType(x)
 
 	switch xType := xType.(type) {
 	case *ast.ChanType, *ast.FuncType:
@@ -385,20 +398,20 @@ func rangeLoopCount(stmt *ast.RangeStmt) (ast.Expr, bool) {
 			return intExpr(len(lit.Elts)), true
 		}
 	case *ast.MapType:
-		if lit, ok := stmt.X.(*ast.CompositeLit); ok {
+		if lit, ok := x.(*ast.CompositeLit); ok {
 			return intExpr(len(lit.Elts)), true
 		}
 	case *ast.StarExpr:
 		if xType, ok := xType.X.(*ast.ArrayType); !ok || xType.Len == nil {
 			return nil, true
-		} else if unary, ok := stmt.X.(*ast.UnaryExpr); ok && unary.Op == token.AND {
+		} else if unary, ok := x.(*ast.UnaryExpr); ok && unary.Op == token.AND {
 			if _, ok := unary.X.(*ast.CompositeLit); ok {
 				return xType.Len, true
 			}
 		}
 	case *ast.Ident:
 		if xType.Name == "string" {
-			if lit, ok := stmt.X.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+			if lit, ok := x.(*ast.BasicLit); ok && lit.Kind == token.STRING {
 				if str, err := strconv.Unquote(lit.Value); err == nil {
 					return intExpr(len(str)), true
 				}
@@ -408,7 +421,7 @@ func rangeLoopCount(stmt *ast.RangeStmt) (ast.Expr, bool) {
 		return nil, true
 	}
 
-	if hasCall(stmt.X) {
+	if hasCall(x) {
 		return nil, true
 	}
 
@@ -416,14 +429,14 @@ func rangeLoopCount(stmt *ast.RangeStmt) (ast.Expr, bool) {
 		switch ident.Name {
 		case "byte", "rune", "int", "int8", "int16", "int32", "int64",
 			"uint", "uint8", "uint16", "uint32", "uint64", "uintptr":
-			return stmt.X, true
+			return x, true
 		case "string":
 		default:
 			return nil, true
 		}
 	}
 
-	if slice, ok := stmt.X.(*ast.SliceExpr); ok {
+	if slice, ok := x.(*ast.SliceExpr); ok {
 		high := slice.High
 		if high == nil {
 			high = &ast.CallExpr{Fun: ast.NewIdent("len"), Args: []ast.Expr{slice.X}}
@@ -434,7 +447,7 @@ func rangeLoopCount(stmt *ast.RangeStmt) (ast.Expr, bool) {
 		return high, true
 	}
 
-	return &ast.CallExpr{Fun: ast.NewIdent("len"), Args: []ast.Expr{stmt.X}}, true
+	return &ast.CallExpr{Fun: ast.NewIdent("len"), Args: []ast.Expr{x}}, true
 }
 
 func forLoopCount(stmt *ast.ForStmt) (ast.Expr, bool) {
